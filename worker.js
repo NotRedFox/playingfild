@@ -20999,7 +20999,12 @@ async function injectFeedbackCard(tabId, options = {}) {
   const modeStored = await chrome.storage.local.get('dataCollectionMode');
   const isLocalMode = options.isLocalMode === true || modeStored.dataCollectionMode === 'local';
   try {
-    if (!(await requireSignedInForClassifier())) return false;
+    // Sign-in NOT required to show the card. Feedback is stored locally
+    // in chrome.storage.local (feedbackHistory) and only syncs to
+    // Supabase if the user is signed in. Requiring sign-in to even ASK
+    // was blocking the card for users trying the extension without an
+    // account (user report 2026-07 v54: "the feedback popup is not
+    // showing up" on a fresh public-preview install).
     const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
     if (!tabCheck?.url?.startsWith('http')) {
       console.info('>=PlayingFild: Skipping feedback card injection on restricted/non-http page', tabCheck?.url || '(unknown)');
@@ -21912,6 +21917,33 @@ async function maybeDrainCloseCardOnUserActivation(tabId) {
   }
 }
 
+// NAVIGATION-COMPLETE drain hook (user report 2026-07 v54: "the is this
+// page productive UI is not showing up"). The drain previously only
+// triggered on tabs.onActivated (switching TO an already-loaded content
+// tab). The common single-tab flow never fires that: Facebook closes →
+// Chrome focuses the dashboard/new-tab → user types a URL into that SAME
+// tab → the tab navigates but never re-activates → onActivated never
+// fires → the queued card never drains and eventually goes stale. This
+// listener catches the navigation: when the ACTIVE tab finishes loading
+// an injectable page and the queue is non-empty, drain onto it.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return;
+  if (!tab?.active) return;
+  if (!tab?.url || !/^https?:/i.test(tab.url)) return;
+  (async () => {
+    try {
+      const queue = await getCloseCardQueue();
+      if (queue.length === 0) return;
+      if (isCloseCardBlockedTab(tabId)) return;
+      if (!isCloseCardDrainTargetTab(tab)) return;
+      console.info('[pf-closecard] nav-complete drain trigger', { tabId, url: (tab.url || '').slice(0, 60) });
+      scheduleCloseCardDrainOnActivation(tabId);
+    } catch (e) {
+      console.warn('[pf-closecard] nav-complete drain check failed', e);
+    }
+  })();
+});
+
 function clearStaleCurrentlyShownPopup() {
   if (!state.currentlyShownPopup) return false;
   const age = Date.now() - (state.currentlyShownPopup.shownAt || 0);
@@ -21930,7 +21962,10 @@ function clearStaleCurrentlyShownPopup() {
  *  enqueue without replacing invisible hosts. Handler splices on click. */
 async function drainCloseCardQueueOnNav(options = {}) {
   const { preferredTabId = null, source = 'unknown' } = options;
-  if (!(await requireSignedInForClassifier())) return;
+  // Sign-in NOT required. The close card is informational ("we closed
+  // this, was it right?") and the user's feedback stays local until
+  // they sign in and cloud sync activates. Blocking on sign-in meant
+  // fresh installs never saw the card even though closes were firing.
   clearStaleCurrentlyShownPopup();
 
   if (drainInProgress) {
