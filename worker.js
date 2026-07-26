@@ -13341,7 +13341,17 @@ const CLOSE_GUARD_EXEMPT_REASONS = new Set([
 /** Timer-driven closes must still show the feedback card when limitsEnabled is false (break mode). */
 const CLOSE_CARD_TIMER_DRAIN_REASONS = new Set([
   'budget_exhausted',
-  'study_timer'
+  'study_timer',
+  // Classifier-driven closes (anchored hostnames, Bayes verdicts, unprod
+  // reminders) must always drain the close-card even if the user has
+  // toggled the closer OFF after the close was queued - the card is
+  // informational ("we closed this, was it right?") not enforcement.
+  // User report 2026-07 v54: "the feedback popup is not showing up" -
+  // root cause was these reasons dropping when closerOff at drain time.
+  'anchored_update',
+  'classifier',
+  'unprod_reminder',
+  'anchored'
 ]);
 
 /** Tab-count closes bypass sign-in, break timer, and empty-hostname gates. */

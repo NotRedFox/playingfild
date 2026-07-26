@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": ">=PlayingFild",
-  "version": "1.9.2.3",
+  "version": "1.9.2.4",
   "browser_specific_settings": {
     "gecko": {
       "id": "playingfild@notredfox.dev",
