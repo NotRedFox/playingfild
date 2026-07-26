@@ -10836,17 +10836,22 @@ async function handleAnalyzePage(message, tabId, sendResponse) {
       console.info('[pf-card-gate] FORCED top-level — Neutral without user-confirmed label');
     }
   } else {
+    // Higher base ask rate (user report 2026-07 v53: "the unproductive
+    // popup that asks if it was unproductive or not is not showing up").
+    // Old rates (3-10% at 20+ history) meant the card basically never
+    // fired once the user had given feedback on their common sites.
+    // Bumped so users see it often enough to keep training the classifier.
     if (feedbackHistoryLen < 3) {
       shouldAskFeedback = true;
     } else if (feedbackHistoryLen < 20) {
-      shouldAskFeedback = (analysis.confidence < 0.7) && (Math.random() < 0.5);
+      shouldAskFeedback = (analysis.confidence < 0.75) && (Math.random() < 0.6);
     } else {
       if (analysis.confidence < 0.6) {
-        shouldAskFeedback = Math.random() < 0.10;
+        shouldAskFeedback = Math.random() < 0.30;  // was 0.10
       } else if (analysis.confidence > 0.95) {
-        shouldAskFeedback = Math.random() < 0.05;
+        shouldAskFeedback = Math.random() < 0.10;  // was 0.05
       } else {
-        shouldAskFeedback = Math.random() < 0.03;
+        shouldAskFeedback = Math.random() < 0.15;  // was 0.03
       }
     }
     if (isColdStart) shouldAskFeedback = true;
@@ -10857,10 +10862,16 @@ async function handleAnalyzePage(message, tabId, sendResponse) {
       if (PF_DEV_ASK_VERBOSE) console.info('[pf-dev-ask] dev mode active — bypassing dedup/confidence');
       if (PF_DEV_ASK_VERBOSE) console.info('[pf-dev-ask] forcing shouldAskFeedback=true for', url);
     }
-    // Skip repeat feedback prompts for URLs the user has already rated.
-    if (hasUrlData && analysis.confidence >= 0.7 && state.devAskEveryPage !== true) {
+    // Skip repeat feedback prompts for URLs the user has already rated
+    // MULTIPLE times AND where confidence is high. Was gating on any
+    // single feedback + confidence >= 0.7, which meant a URL never got
+    // re-asked after one confirmation, and a single mis-label was
+    // permanent. Now requires >= 3 prior feedbacks before the "trained"
+    // veto kicks in, so early classifier mistakes stay correctable.
+    // User report 2026-07 v53: "the feedback popup is not showing up".
+    if (hasUrlData && feedbackCount >= 3 && analysis.confidence >= 0.75 && state.devAskEveryPage !== true) {
       shouldAskFeedback = false;
-      console.info('[pf-card-gate] vetoed — hasUrlData with confidence', analysis.confidence, '— not pestering');
+      console.info('[pf-card-gate] vetoed — hasUrlData (', feedbackCount, ') with confidence', analysis.confidence, '— not pestering');
     }
 
     try {
