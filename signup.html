@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign up - &gt;=PlayingFild</title>
+  <link rel="preload" href="fonts/Caveat-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/Caveat-Bold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/PatrickHand-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    /* Never block the whole sign-in page on font loading — paint immediately
+       with system fonts and let notebook fonts swap in (font-display / FOIT-free).
+       Previously html.fonts-loading body { visibility:hidden } made the page look
+       like it never loaded on slow/cold font fetches (esp. notebook theme). */
+    html body { visibility: visible; }
+    html.fonts-loading.theme-notebook body { visibility: visible; }
+  </style>
+  <link rel="stylesheet" href="shared/brand-tokens.css">
+  <link rel="stylesheet" href="themes/fonts.css">
+  <link rel="stylesheet" href="themes/signup-notebook.css">
+  <script src="themes/font-load.js"></script>
+  <script src="signup-bootstrap.js"></script>
+  <style>
+    :root {
+      --bg: #f4f4f9;
+      --card: #ffffff;
+      --card-border: rgba(91, 75, 159, 0.12);
+      --text: #333;
+      --text-muted: #666;
+      --accent: var(--pf-purple-600, #5B4B9F);
+      --accent-hover: var(--pf-purple-700, #4A3D85);
+      --accent-text: #ffffff;
+      --error: #dc3545;
+      --info: var(--pf-purple-500, #6B5BB0);
+      --input-bg: #ffffff;
+      --input-border: #d1d5db;
+      --input-focus: var(--pf-purple-600, #5B4B9F);
+      --brand-accent: var(--pf-purple-600, #5B4B9F);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--brand-accent);
+      border-radius: 12px;
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 2px 12px rgba(91, 75, 159, 0.08);
+    }
+
+    .logo {
+      font-size: 1.4em;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--pf-purple-600, #5B4B9F);
+      letter-spacing: -0.02em;
+    }
+
+    .card a {
+      color: var(--pf-purple-600, #5B4B9F);
+      font-weight: 600;
+    }
+
+    .card a:hover {
+      color: var(--pf-purple-700, #4A3D85);
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9em;
+      margin-bottom: 28px;
+    }
+
+    .form-group { margin-bottom: 14px; }
+
+    label {
+      display: block;
+      font-size: 0.85em;
+      color: var(--text);
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .label-hint {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 0.85em;
+      margin-left: 4px;
+    }
+
+    input[type="email"],
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 15px 18px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 1.05em;
+      font-family: inherit;
+      transition: border-color 0.15s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--input-focus);
+      box-shadow: 0 0 0 3px rgba(91, 75, 159, 0.15);
+    }
+
+    input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button {
+      width: 100%;
+      padding: 11px;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      border-radius: 6px;
+      font-size: 0.95em;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s ease, transform 0.1s ease;
+      font-family: inherit;
+    }
+
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    @keyframes pfReqShake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-4px); }
+      40%, 80% { transform: translateX(4px); }
+    }
+    .req-shake {
+      animation: pfReqShake 0.32s cubic-bezier(.36, .07, .19, .97) both;
+    }
+
+    .secondary-button {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--input-border);
+      margin-top: 10px;
+    }
+
+    .secondary-button:hover:not(:disabled) {
+      background: var(--pf-purple-100, #F0EBF8);
+      border-color: var(--pf-purple-300, #C4B5E0);
+      color: var(--pf-purple-text, #4A3D85);
+    }
+
+    .message {
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.85em;
+      /* Lives at the BOTTOM of the card now (below the step buttons), so
+         it needs space above, not below. */
+      margin-top: 14px;
+      margin-bottom: 0;
+      display: none;
+    }
+
+    /* Password show/hide: input wrapped in a positioned shell with an eye
+       button inside the field's right edge. Overrides the global 100%-width
+       button styling. User spec 2026-07: no highlight box, no click-scale
+       animation — the icon itself swapping between eye/eye-off is the only
+       state indicator. */
+    .pf-pw-wrap { position: relative; }
+    .pf-pw-wrap input { padding-right: 42px; box-sizing: border-box; }
+    button.pf-pw-eye {
+      position: absolute; right: 6px; top: 50%;
+      transform: translateY(-50%) !important;
+      width: 30px; height: 30px; padding: 4px; margin: 0;
+      background: transparent !important; border: none; border-radius: 0;
+      color: #4b5160 !important; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: none;
+      transition: none !important;
+      opacity: 1 !important;
+      animation: none !important;
+    }
+    button.pf-pw-eye:hover:not(:disabled),
+    button.pf-pw-eye:focus,
+    button.pf-pw-eye:focus-visible,
+    button.pf-pw-eye:active:not(:disabled) {
+      background: transparent !important;
+      color: #4b5160 !important;
+      transform: translateY(-50%) !important;
+      box-shadow: none !important;
+      outline: none !important;
+      opacity: 1 !important;
+      transition: none !important;
+      animation: none !important;
+    }
+    /* Force the SVG stroke so the eye is always visible regardless of
+       whatever button color inheritance chain the page ships. */
+    button.pf-pw-eye svg {
+      width: 18px; height: 18px; display: block;
+      stroke: #4b5160 !important;
+      color: #4b5160 !important;
+    }
+
+    .message.error {
+      display: block;
+      background: rgba(220, 53, 69, 0.08);
+      border: 1px solid rgba(220, 53, 69, 0.25);
+      color: var(--error);
+    }
+
+    .message.success {
+      display: block;
+      background: rgba(91, 75, 159, 0.08);
+      border: 1px solid rgba(91, 75, 159, 0.25);
+      color: var(--pf-purple-text, #4A3D85);
+    }
+
+    .message.info {
+      display: block;
+      background: var(--pf-purple-100, #F0EBF8);
+      border: 1px solid var(--pf-purple-300, #C4B5E0);
+      color: var(--pf-purple-text, #4A3D85);
+    }
+
+    .footer-text {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.78em;
+      margin-top: 18px;
+      line-height: 1.5;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    .text-link {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.85em;
+      color: var(--text-muted);
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      width: auto;
+      font-weight: 500;
+    }
+
+    .text-link:hover {
+      color: var(--pf-purple-600, #5B4B9F);
+      text-decoration: underline;
+    }
+
+    .muted-link {
+      font-size: 0.82em;
+      color: var(--text-muted);
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 6px;
+      cursor: pointer;
+    }
+
+    .muted-link:hover {
+      color: var(--pf-purple-600, #5B4B9F);
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <svg style="position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;" aria-hidden="true">
+    <defs>
+      <filter id="notebook-sketch" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="2" seed="7" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <filter id="notebook-sketch-strong" x="-6%" y="-6%" width="112%" height="112%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="3" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.4" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+  <div class="card">
+    <div class="logo">&gt;=PlayingFild</div>
+    <div class="subtitle">Create an account to sync across devices</div>
+
+    <!-- pfMessage moved BELOW the step buttons (end of card) per user
+         spec 2026-07 — errors surface under the Sign in / Create account
+         button instead of at the top of the screen. -->
+
+    <!-- STEP 1: Signup -->
+    <div id="pfStepSignup" class="step active">
+      <div class="form-group">
+        <label for="pfUsername">Display name <span class="label-hint">(for leaderboards and community features in V2)</span></label>
+        <input type="text" id="pfUsername" placeholder="e.g. your name" required minlength="2" maxlength="32">
+      </div>
+      <div class="form-group">
+        <label for="pfEmail">Email</label>
+        <input type="email" id="pfEmail" autocomplete="email" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label for="pfPassword">Password</label>
+        <input type="password" id="pfPassword" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8">
+      </div>
+      <div class="form-group">
+        <label for="pfPasswordConfirm">Confirm password</label>
+        <input type="password" id="pfPasswordConfirm" autocomplete="new-password" placeholder="Re-enter your password" required minlength="8">
+      </div>
+      <label id="pfAgreeAgeLabel" style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; margin-bottom: 12px;">
+        <input type="checkbox" id="pfAgreeAge" required style="margin-top: 3px;">
+        <span>I confirm I am 13 or older.</span>
+      </label>
+      <label id="pfAgreePrivacyLabel" style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; margin-bottom: 12px;">
+        <input type="checkbox" id="pfAgreePrivacy" required style="margin-top: 3px;">
+        <span>
+          I agree to the <a id="pfTermsOfServiceLink" href="#" target="_blank" rel="noopener noreferrer">Terms of Service</a> and <a id="pfPrivacyPolicyLink" href="#" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+        </span>
+      </label>
+      <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; margin-bottom: 16px;">
+        <input type="checkbox" id="pfOptInEmail" style="margin-top: 3px;">
+        <div>
+          <div style="font-weight: 600;">Receive occasional emails from the developer</div>
+          <p style="font-size: 0.85em; color: var(--text-muted); line-height: 1.45; margin-top: 4px;">
+            Updates about PlayingFild. You can unsubscribe anytime.
+          </p>
+        </div>
+      </label>
+      <button id="pfSignupBtn" type="button" disabled>Create account</button>
+      <button id="pfSwitchToSignin" class="secondary-button">I already have an account</button>
+    </div>
+
+    <!-- STEP 2: Verify -->
+    <div id="pfStepVerify" class="step">
+      <div class="form-group">
+        <label>Check your email</label>
+        <p style="font-size: 0.88em; color: var(--text-muted); line-height: 1.5; margin-top: 6px;">
+          We sent a verification link to <strong id="pfVerifyEmail" style="color: var(--text);"></strong>.
+          Click the link in your email. After verification you will be auto-redirected back, or you can click the button below to confirm.
+        </p>
+      </div>
+      <button id="pfVerifyCheckBtn">I've verified, sign me in</button>
+      <button id="pfResendBtn" class="secondary-button">Resend verification email</button>
+    </div>
+
+    <!-- STEP 3: Signin -->
+    <div id="pfStepSignin" class="step">
+      <div class="form-group">
+        <label for="pfSigninEmail">Email</label>
+        <input type="email" id="pfSigninEmail" autocomplete="email" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label for="pfSigninPassword">Password</label>
+        <input type="password" id="pfSigninPassword" autocomplete="current-password" placeholder="Your password" required>
+        <a href="#" id="forgotPasswordLink" class="muted-link">Forgot password?</a>
+      </div>
+      <button id="pfSigninBtn">Sign in</button>
+      <button id="pfSwitchToSignup" class="secondary-button">Create a new account instead</button>
+    </div>
+
+    <!-- STEP: Password reset request -->
+    <div id="resetStep" class="step">
+      <div class="form-group">
+        <label for="pfResetEmail">Reset your password</label>
+        <p style="font-size: 0.88em; color: var(--text-muted); line-height: 1.5; margin-top: 6px; margin-bottom: 10px;">
+          Enter your email and we'll send a reset link.
+        </p>
+        <input type="email" id="pfResetEmail" autocomplete="email" placeholder="you@example.com" required>
+      </div>
+      <div id="pfResetMessage" class="message"></div>
+      <button id="pfSendResetBtn">Send reset link</button>
+      <button type="button" id="pfBackToSignin" class="secondary-button">Back to sign in</button>
+    </div>
+
+    <!-- STEP: Set new password (recovery token from email link) -->
+    <div id="pfStepNewPassword" class="step">
+      <div class="form-group">
+        <label for="pfNewPassword">Set a new password</label>
+        <p style="font-size: 0.88em; color: var(--text-muted); line-height: 1.5; margin-top: 6px; margin-bottom: 10px;">
+          Choose a new password for your account.
+        </p>
+        <input type="password" id="pfNewPassword" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8">
+      </div>
+      <div class="form-group">
+        <label for="pfNewPasswordConfirm">Confirm new password</label>
+        <input type="password" id="pfNewPasswordConfirm" autocomplete="new-password" placeholder="Re-enter your password" required minlength="8">
+      </div>
+      <button id="pfSetPasswordBtn">Update password</button>
+    </div>
+
+    <!-- STEP 4: Done -->
+    <div id="pfStepDone" class="step">
+      <div style="text-align: center; padding: 16px 0;">
+        <div style="font-size: 2.5em; margin-bottom: 12px; color: var(--accent);">✓</div>
+        <div style="font-size: 1.1em; font-weight: 600; margin-bottom: 8px;">You're signed in.</div>
+        <div style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 20px;">
+          Welcome to &gt;=PlayingFild. Taking you to the dashboard...
+        </div>
+        <button id="pfCloseBtn">Go to dashboard now</button>
+      </div>
+    </div>
+
+    <div id="pfMessage" class="message" role="alert" aria-live="polite"></div>
+  </div>
+
+  <script type="module" src="signup.js"></script>
+</body>
+</html>

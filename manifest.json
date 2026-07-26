@@ -1,0 +1,122 @@
+{
+  "manifest_version": 3,
+  "name": ">=PlayingFild",
+  "version": "1.9.2.2",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "playingfild@notredfox.dev",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "unlimitedStorage",
+    "notifications",
+    "scripting",
+    "alarms",
+    "webNavigation",
+    "idle",
+    "declarativeNetRequest",
+    "favicon"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-src https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://youtube-nocookie.com; child-src https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://youtube-nocookie.com; img-src 'self' data: blob: chrome://favicon https://*.ytimg.com https://*.youtube.com https://*.googleusercontent.com https://icons.duckduckgo.com https://www.google.com https://*.gstatic.com; media-src 'self' blob: https://*.googlevideo.com; connect-src 'self' https://*.youtube.com https://*.googlevideo.com https://*.ytimg.com https://iaqwfnyspvabtvatkldk.supabase.co https://cloudflare-dns.com https://dns.google https://eu.i.posthog.com;"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "youtube_embed_rules",
+        "enabled": true,
+        "path": "youtube_embed_rules.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "global_seed.json",
+        "sensitive_page_detector_page_bridge.js",
+        "icon16.png",
+        "icon48.png",
+        "icon128.png",
+        "icon.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "signup.html",
+        "forgot-password.html",
+        "signup.js",
+        "signup-bootstrap.js",
+        "forgot-password.js",
+        "auth.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "privacy_gate.js",
+        "sensitive_page_detector.js",
+        "consolidated_content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "closer_indicator.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/embed/*",
+        "https://*.youtube-nocookie.com/embed/*",
+        "https://player.vimeo.com/*",
+        "https://*.vimeo.com/*"
+      ],
+      "js": [
+        "closer_indicator.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

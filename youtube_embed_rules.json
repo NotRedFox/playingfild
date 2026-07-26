@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Referer", "operation": "set", "value": "https://www.youtube-nocookie.com/" },
+        { "header": "Origin",  "operation": "set", "value": "https://www.youtube-nocookie.com" }
+      ],
+      "responseHeaders": [
+        { "header": "X-Frame-Options", "operation": "remove" },
+        { "header": "Content-Security-Policy", "operation": "remove" },
+        { "header": "Content-Security-Policy-Report-Only", "operation": "remove" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||youtube-nocookie.com/",
+      "resourceTypes": ["sub_frame"]
+    }
+  }
+]

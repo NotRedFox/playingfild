@@ -1,0 +1,278 @@
+/* Notebook theme for signup.html — matches dashboard themes/notebook.css */
+
+body.theme-notebook {
+  --nb-paper: #FAF8F3;
+  --nb-paper-2: #FFFEFB;
+  --nb-backdrop: #A99FD6;
+  --nb-ink: #6256A8;
+  --nb-ink-soft: #8A82BE;
+  --nb-border: #9B91D4;
+  --nb-fill: #8678CA;
+  --nb-fill-hover: #7568BA;
+  --nb-lavender: #EDE9F8;
+  --nb-muted: #A89ECC;
+  --nb-danger: #B4566A;
+  --nb-ok: #4E9A6A;
+  --nb-font: 'Caveat', 'Segoe UI', sans-serif;
+  --nb-hand: 'Patrick Hand', 'Segoe UI', sans-serif;
+  --nb-sketch-strong: url(#notebook-sketch-strong);
+  --nb-shadow: 5px 7px 26px rgba(98, 86, 168, 0.22);
+  --nb-t: 200ms ease;
+
+  background: var(--nb-backdrop);
+  color: var(--nb-ink);
+  font-family: var(--nb-hand);
+  font-size: 18px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.theme-notebook .card {
+  background: var(--nb-paper);
+  background-image: radial-gradient(rgba(155, 145, 212, 0.05) 1px, transparent 1.4px);
+  background-size: 5px 5px;
+  border: 2px solid transparent;
+  border-left: 2px solid transparent;
+  border-radius: 16px;
+  box-shadow: var(--nb-shadow), inset 0 0 0 6px rgba(255, 255, 255, 0.4);
+  position: relative;
+  padding: 32px 32px 32px 56px;
+  max-width: 440px;
+}
+
+body.theme-notebook .card::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 22px;
+  bottom: 22px;
+  width: 20px;
+  background-image: radial-gradient(
+    circle at 10px 10px,
+    rgba(155, 145, 212, 0.35) 0 3px,
+    rgba(134, 120, 202, 0.75) 3px 5px,
+    transparent 5.5px
+  );
+  background-size: 20px 34px;
+  background-repeat: repeat-y;
+  filter: url(#notebook-sketch);
+  pointer-events: none;
+}
+
+body.theme-notebook .card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2.4px solid var(--nb-border);
+  border-radius: inherit;
+  filter: var(--nb-sketch-strong);
+}
+
+body.theme-notebook .logo {
+  color: var(--nb-ink);
+  font-family: var(--nb-font);
+  font-size: 2.1em;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+body.theme-notebook .subtitle {
+  color: var(--nb-ink-soft);
+  font-family: var(--nb-hand);
+  font-size: 1.05em;
+  opacity: 1;
+}
+
+body.theme-notebook label,
+body.theme-notebook .footer-text {
+  color: var(--nb-ink);
+  font-family: var(--nb-hand);
+  font-weight: 700;
+}
+
+body.theme-notebook label {
+  font-size: 1.05em;
+}
+
+body.theme-notebook .label-hint,
+body.theme-notebook .footer-text {
+  color: var(--nb-muted);
+  font-weight: 400;
+}
+
+body.theme-notebook .footer-text {
+  font-size: 0.88em;
+  line-height: 1.55;
+}
+
+body.theme-notebook label span,
+body.theme-notebook label p,
+body.theme-notebook label div {
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook label [style*="color: var(--text-muted)"],
+body.theme-notebook label [style*="color:var(--text-muted)"] {
+  color: var(--nb-muted) !important;
+  font-weight: 400 !important;
+}
+
+body.theme-notebook input[type="email"],
+body.theme-notebook input[type="password"],
+body.theme-notebook input[type="text"] {
+  font-family: var(--nb-hand);
+  font-size: 1.05em;
+  color: var(--nb-ink);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(155, 145, 212, 0.55);
+  border-radius: 0;
+  padding: 8px 4px;
+  box-shadow: none;
+}
+
+body.theme-notebook input::placeholder {
+  color: var(--nb-muted);
+  font-family: var(--nb-hand);
+  opacity: 1;
+}
+
+body.theme-notebook input:focus {
+  outline: none;
+  border-bottom-color: var(--nb-ink);
+  box-shadow: none;
+}
+
+body.theme-notebook input:focus-visible {
+  outline: 3px solid rgba(134, 120, 202, 0.4);
+  outline-offset: 2px;
+}
+
+body.theme-notebook button {
+  font-family: var(--nb-hand);
+  font-size: 1.05em;
+  font-weight: 700;
+  background: var(--nb-fill);
+  color: var(--nb-paper);
+  border: 2px solid var(--nb-fill);
+  border-radius: 10px;
+  transition: transform var(--nb-t), background var(--nb-t), border-color var(--nb-t);
+}
+
+body.theme-notebook button:hover:not(:disabled) {
+  background: var(--nb-fill-hover);
+  border-color: var(--nb-fill-hover);
+}
+
+body.theme-notebook button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+body.theme-notebook button:disabled {
+  opacity: 0.42;
+}
+
+body.theme-notebook .secondary-button {
+  background: var(--nb-paper);
+  color: var(--nb-ink);
+  border: 2px solid var(--nb-border);
+}
+
+body.theme-notebook .secondary-button:hover:not(:disabled) {
+  background: var(--nb-lavender);
+  color: var(--nb-ink);
+}
+
+body.theme-notebook .message {
+  border-radius: 10px;
+  border-width: 2px;
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook .message.error {
+  background: rgba(180, 86, 106, 0.1);
+  border-color: rgba(180, 86, 106, 0.35);
+  color: var(--nb-danger);
+}
+
+body.theme-notebook .message.success {
+  background: rgba(78, 154, 106, 0.12);
+  border-color: rgba(78, 154, 106, 0.35);
+  color: var(--nb-ok);
+}
+
+body.theme-notebook .message.info {
+  background: rgba(155, 145, 212, 0.14);
+  border-color: rgba(155, 145, 212, 0.45);
+  color: var(--nb-ink-soft);
+}
+
+body.theme-notebook .text-link,
+body.theme-notebook .muted-link,
+body.theme-notebook a {
+  color: var(--nb-ink-soft);
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook a:hover {
+  color: var(--nb-ink);
+}
+
+body.theme-notebook input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--nb-border);
+  border-radius: 3px;
+  background: var(--nb-paper);
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--nb-fill);
+}
+
+body.theme-notebook input[type="checkbox"]:checked {
+  background: var(--nb-lavender);
+}
+
+body.theme-notebook input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--nb-hand);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--nb-ink);
+  line-height: 1;
+}
+
+body.theme-notebook #pfStepDone [style*="color: var(--accent)"] {
+  color: var(--nb-ok) !important;
+}
+
+body.theme-notebook #pfStepDone [style*="color: var(--text-muted)"] {
+  color: var(--nb-muted) !important;
+}
+
+body.theme-notebook #pfStepVerify p,
+body.theme-notebook #resetStep p,
+body.theme-notebook #pfStepNewPassword p {
+  color: var(--nb-muted) !important;
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook #pfStepVerify strong {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-hand);
+  font-weight: 700;
+}
+
+body.theme-notebook .spinner {
+  border-color: rgba(250, 248, 243, 0.35);
+  border-top-color: var(--nb-paper);
+}

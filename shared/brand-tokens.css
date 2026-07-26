@@ -1,0 +1,9 @@
+:root {
+  --pf-purple-100: #F0EBF8;   /* lightest tint, panel backgrounds */
+  --pf-purple-200: #E8E4F5;   /* light tint, info panel backgrounds */
+  --pf-purple-300: #C4B5E0;   /* mid-tint, borders / hover backgrounds */
+  --pf-purple-500: #6B5BB0;   /* base brand purple, matches logo */
+  --pf-purple-600: #5B4B9F;   /* darker, primary buttons / links */
+  --pf-purple-700: #4A3D85;   /* darkest, button hover state */
+  --pf-purple-text: #4A3D85;  /* readable text on white background */
+}

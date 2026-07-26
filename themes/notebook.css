@@ -1,0 +1,1799 @@
+/* ════════════════════════════════════════════════════════════════
+   Notebook theme — additive only, scoped under body.theme-notebook.
+   The default (Tutorial Background) theme is untouched.
+   Heavy use of !important is required: the dashboard markup carries
+   many inline style="" attributes that would otherwise win.
+   ════════════════════════════════════════════════════════════════ */
+
+:root {
+  --nb-paper: #FAF8F3;
+  --nb-paper-2: #FFFEFB;
+  --nb-backdrop: #A99FD6;
+  --nb-ink: #6256A8;
+  --nb-ink-soft: #8A82BE;
+  --nb-border: #9B91D4;
+  --nb-fill: #8678CA;
+  --nb-fill-hover: #7568BA;
+  --nb-lavender: #EDE9F8;
+  --nb-lavender-2: #E3DDF4;
+  --nb-muted: #A89ECC;
+  --nb-toggle-off: #D8D2EC;
+  --nb-toggle-on: #9588D0;
+  --nb-danger: #B4566A;
+  --nb-ok: #4E9A6A;
+  --nb-font: 'Caveat', 'Segoe UI', sans-serif;
+  --nb-hand: 'Patrick Hand', 'Segoe UI', sans-serif;
+  --nb-sketch: url(#notebook-sketch);
+  --nb-sketch-strong: url(#notebook-sketch-strong);
+  --nb-shadow: 5px 7px 26px rgba(74, 61, 156, 0.22);
+  --nb-shadow-card: 2px 3px 9px rgba(98, 86, 168, 0.10);
+  --nb-shadow-hover: 4px 8px 20px rgba(98, 86, 168, 0.18);
+  --nb-t: 200ms ease;
+}
+
+/* ── Page backdrop ── */
+body.theme-notebook {
+  background: var(--nb-backdrop) !important;
+  color: var(--nb-ink);
+  font-family: var(--nb-hand);
+  font-size: 18px;
+  padding: 22px 26px 34px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dashboard title sits on the purple backdrop (small duplicate brand line removed) */
+body.theme-notebook > h2 {
+  color: var(--nb-paper) !important;
+  font-family: var(--nb-font);
+  font-weight: 700;
+  font-size: 2.1em;
+  margin: 2px 0 18px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+body.theme-notebook #returnBtn {
+  background: var(--nb-paper) !important;
+  color: var(--nb-ink) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 0.9em !important;
+  letter-spacing: normal !important;
+}
+
+/* ════════════════ TOP TABS (file-folder) ════════════════ */
+body.theme-notebook .tabs {
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 8px;
+  padding: 0 18px;
+  align-items: flex-end;
+}
+
+body.theme-notebook .tab {
+  flex: 1;
+  text-align: center;
+  padding: 13px 14px 14px;
+  background: var(--nb-lavender) !important;
+  color: var(--nb-ink) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-bottom: none !important;
+  border-radius: 18px 18px 0 0 !important;
+  font-family: var(--nb-hand);
+  font-size: 1.22em;
+  font-weight: 700;
+  position: relative;
+  top: 4px;
+  transition: background var(--nb-t), top var(--nb-t), color var(--nb-t);
+}
+
+body.theme-notebook .tab:not(.active):hover {
+  background: var(--nb-lavender-2) !important;
+  top: 2px;
+}
+
+/* Active tab = cream paper, merges into the page below */
+body.theme-notebook .tab.active {
+  background: var(--nb-paper) !important;
+  color: var(--nb-ink) !important;
+  border-top: 2px solid var(--nb-border) !important;
+  top: 6px;
+  z-index: 3;
+  padding-bottom: 18px;
+}
+
+/* hand-drawn squiggle underline beneath the active label */
+body.theme-notebook .tab.active::after {
+  content: '';
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 9px;
+  height: 5px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 6' preserveAspectRatio='none'%3E%3Cpath d='M1 4 Q12 1 24 3.5 T48 3 T72 4 T99 2.5' stroke='%239B91D4' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+
+/* ════════════════ PAGE / PAPER ════════════════ */
+body.theme-notebook .content-box {
+  background: var(--nb-paper) !important;
+  background-image: radial-gradient(rgba(74, 61, 156, 0.04) 1px, transparent 1.4px);
+  background-size: 5px 5px;
+  border: 2.5px solid var(--nb-border) !important;
+  border-radius: 4px 18px 18px 18px !important;
+  box-shadow: var(--nb-shadow), inset 0 0 0 6px rgba(255, 255, 255, 0.4);
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 500px;
+  padding: 30px 34px 36px 64px;
+  position: relative;
+}
+
+/* Spiral binding — punched ring holes down the left margin */
+body.theme-notebook .content-box::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 20px;
+  /* Trim bottom so hole repeat (32px) never leaves a half-cut dot on the page edge */
+  bottom: calc(20px + mod(100% - 40px, 32px));
+  width: 22px;
+  overflow: hidden;
+  background-image:
+    radial-gradient(
+      circle at 11px 14px,
+      rgba(155, 145, 212, 0.35) 0 5px,
+      rgba(134, 120, 202, 0.75) 5px 7px,
+      transparent 7.6px
+    );
+  background-size: 22px 32px;
+  background-repeat: repeat-y;
+  filter: var(--nb-sketch);
+  pointer-events: none;
+}
+
+/* ── Headings ── */
+body.theme-notebook h2,
+body.theme-notebook h3,
+body.theme-notebook h4,
+body.theme-notebook strong,
+body.theme-notebook b {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+  font-weight: 700;
+}
+body.theme-notebook .content-box h3 {
+  font-family: var(--nb-hand);
+  font-size: 1.35em;
+  font-weight: 700;
+  margin-bottom: 14px;
+  display: inline-block;
+}
+body.theme-notebook .content-box h3::after {
+  content: '';
+  display: block;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--nb-border) 70%, transparent 70%);
+}
+
+/* ── Generic text recolor for muted inline grays ──
+   (white-on-purple badges keep color:white and are untouched) */
+body.theme-notebook .content-box [style*="color: #666"],
+body.theme-notebook .content-box [style*="color:#666"],
+body.theme-notebook .content-box [style*="color: #888"],
+body.theme-notebook .content-box [style*="color:#888"],
+body.theme-notebook .content-box [style*="color: #999"],
+body.theme-notebook .content-box [style*="color: #444"],
+body.theme-notebook .content-box [style*="color:#444"],
+body.theme-notebook .content-box [style*="color: #333"],
+body.theme-notebook .content-box [style*="color:#333"],
+body.theme-notebook .content-box [style*="color: #555"],
+body.theme-notebook .content-box [style*="color: #374151"],
+body.theme-notebook .content-box [style*="color: #5f6b7a"],
+body.theme-notebook .content-box [style*="color: #1d1d1f"],
+body.theme-notebook .content-box [style*="color: #2d5a2d"] {
+  color: var(--nb-ink) !important;
+}
+
+body.theme-notebook .content-box p,
+body.theme-notebook .content-box label,
+body.theme-notebook .content-box span,
+body.theme-notebook .content-box li,
+body.theme-notebook .content-box td {
+  font-family: var(--nb-hand);
+  letter-spacing: 0.1px;
+  line-height: 1.45;
+}
+body.theme-notebook .content-box strong,
+body.theme-notebook .content-box b {
+  font-family: var(--nb-hand);
+  font-weight: 700;
+}
+
+/* ════════════════ CARDS / SECTIONS ════════════════ */
+body.theme-notebook .top-ten,
+body.theme-notebook .timer-card,
+body.theme-notebook #tabLifeContainer,
+body.theme-notebook #pauseContainer,
+body.theme-notebook #rewardsNestedContainer,
+body.theme-notebook #advancedBankedTimeBlock,
+body.theme-notebook #advancedEarnSpendBlock,
+body.theme-notebook #bankedTimeContainer,
+body.theme-notebook #rankingModeContainer,
+body.theme-notebook #sessionResetContainer,
+body.theme-notebook #idlePauseContainer,
+body.theme-notebook #specificLimitsWrapper,
+body.theme-notebook #enforcerToggleRow,
+body.theme-notebook #advancedOptionsRow,
+body.theme-notebook .collapsible-section:not(.pf-default-chrome),
+body.theme-notebook #otherWindowsList .row,
+body.theme-notebook #otherComputersList,
+body.theme-notebook #globalSnapshotDiagnostics,
+body.theme-notebook #heatmapContainer,
+body.theme-notebook #wpmChartContainer {
+  background: var(--nb-paper-2) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--nb-shadow-card);
+  transition: transform var(--nb-t), box-shadow var(--nb-t), border-color var(--nb-t);
+}
+
+body.theme-notebook .top-ten:hover,
+body.theme-notebook .timer-card:hover,
+body.theme-notebook #tabLifeContainer:hover,
+body.theme-notebook #pauseContainer:hover:not(.active),
+body.theme-notebook #rewardsNestedContainer:hover,
+body.theme-notebook #advancedBankedTimeBlock:hover,
+body.theme-notebook #bankedTimeContainer:hover,
+body.theme-notebook #rankingModeContainer:hover,
+body.theme-notebook #sessionResetContainer:hover,
+body.theme-notebook #idlePauseContainer:hover,
+body.theme-notebook #enforcerToggleRow:hover,
+body.theme-notebook #otherWindowsList .row:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--nb-shadow-hover);
+  border-color: var(--nb-backdrop) !important;
+}
+/* Advanced Earn/Spend now hovers like every other card on notebook
+   (user spec 2026-07 v18 "notebook advanced earn should show the same
+   highlight the others do"). The previous `#advancedEarnSpendBlock:hover
+   { transform: none }` disable has been removed. */
+
+body.theme-notebook .top-ten {
+  border-left: 6px solid var(--nb-fill) !important;
+}
+body.theme-notebook #otherWindowsList .row {
+  border-left: 6px solid var(--nb-muted) !important;
+}
+
+body.theme-notebook .row {
+  border-bottom-color: rgba(74, 61, 156, 0.15) !important;
+}
+
+/* Inner sub-panels with inline backgrounds → soft paper / tinted */
+body.theme-notebook .content-box [style*="background: #f8f9fa"],
+body.theme-notebook .content-box [style*="background:#f8f9fa"] {
+  background: rgba(74, 61, 156, 0.05) !important;
+  border-radius: 10px !important;
+}
+body.theme-notebook .content-box [style*="background: #e8f5e8"] {
+  background: rgba(78, 154, 106, 0.12) !important;
+  border: 1px solid rgba(78, 154, 106, 0.4) !important;
+  border-radius: 10px !important;
+}
+body.theme-notebook .content-box [style*="background: rgba(255,255,255,0.7)"] {
+  background: #fff !important;
+  border: 1px solid rgba(74, 61, 156, 0.18) !important;
+  border-radius: 10px !important;
+}
+
+/* Inline thin gray borders → purple ink */
+body.theme-notebook .content-box [style*="solid #ccc"],
+body.theme-notebook .content-box [style*="solid #ddd"],
+body.theme-notebook .content-box [style*="solid #e0e0e0"],
+body.theme-notebook .content-box [style*="solid #eee"],
+body.theme-notebook .content-box [style*="solid #feb2b2"] {
+  border-color: rgba(155, 145, 212, 0.35) !important;
+}
+
+/* Special tinted containers */
+body.theme-notebook #streakContainer,
+body.theme-notebook #timeBankedContainer {
+  background: rgba(155, 145, 212, 0.12) !important;
+  border: 2px dashed var(--nb-border) !important;
+  border-radius: 12px !important;
+}
+body.theme-notebook #streakCount,
+body.theme-notebook #streakSubtext,
+body.theme-notebook #timeBankedDisplay {
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook #streakSubtext .streak-goal-met {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--nb-ok) !important;
+}
+body.theme-notebook .enforcer-help-text .nb-sketch-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  vertical-align: -2px;
+}
+
+/* Unproductive Tab Closer — plain chevron (no notebook button chrome) */
+body.theme-notebook #enforcerToggleRow #autoCloseDashboardChevron {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 2px !important;
+  min-width: 0;
+  min-height: 0;
+  transform: none !important;
+}
+body.theme-notebook #enforcerToggleRow #autoCloseDashboardChevron:hover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook #enforcerToggleRow #autoCloseDashboardChevron .pf-auto-close-chevron {
+  font-family: var(--nb-hand);
+  font-size: 0.85em;
+  line-height: 1;
+}
+body.theme-notebook #enforcerToggleRow .pf-enforcer-scope-desc {
+  font-family: var(--nb-hand);
+  color: var(--nb-ink-soft) !important;
+}
+
+body.theme-notebook #pfSignInRequiredBanner {
+  background: var(--nb-paper-2) !important;
+  border: 2px solid var(--nb-border) !important;
+  color: var(--nb-ink) !important;
+  border-radius: 12px !important;
+}
+
+body.theme-notebook hr {
+  border: 0 !important;
+  border-top: 2px dashed rgba(74, 61, 156, 0.3) !important;
+}
+
+/* Active-state container colors */
+body.theme-notebook #pauseContainer.active {
+  background: #fffbe6 !important;
+  border-color: #ffe58f !important;
+}
+body.theme-notebook #pauseContainer.active::after {
+  border-color: #e6a817 !important;
+}
+body.theme-notebook #pauseContainer.active:hover {
+  background: #fffbe6 !important;
+  border-color: #ffe58f !important;
+  transform: translateY(-2px);
+  box-shadow: var(--nb-shadow-hover);
+}
+body.theme-notebook #pauseContainer.active:hover::after {
+  border-color: #e6a817 !important;
+}
+body.theme-notebook #rewardsNestedContainer.active,
+body.theme-notebook #advancedBankedTimeBlock.active {
+  background: rgba(92, 79, 181, 0.08) !important;
+  border-color: var(--nb-ink) !important;
+}
+body.theme-notebook #sessionResetContainer.active {
+  background: rgba(180, 86, 106, 0.08) !important;
+  border-color: var(--nb-danger) !important;
+}
+body.theme-notebook #advancedLimitsSection {
+  background: rgba(228, 223, 246, 0.45) !important;
+  border: 2px dashed rgba(74, 61, 156, 0.4) !important;
+  border-radius: 14px !important;
+}
+
+/* Wipe Tab Times lives inside Tab bar ranking — same surface, no inner card */
+body.theme-notebook #rankingModeContainer #wipeTabTimesContainer,
+body.theme-notebook #rankingModeContainer #wipeTabTimesContainer.active,
+body.theme-notebook #rankingModeContainer #wipeTabTimesContainer.inactive {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+body.theme-notebook .pf-rank-demo-browser {
+  background: var(--nb-lavender) !important;
+  border-color: var(--nb-border) !important;
+  box-shadow: none;
+}
+body.theme-notebook .pf-rank-demo-chrome {
+  background: var(--nb-lavender-2) !important;
+  border-bottom-color: var(--nb-border) !important;
+}
+body.theme-notebook .pf-rank-demo-stage {
+  background: var(--nb-paper-2) !important;
+}
+body.theme-notebook .pf-rank-demo-close-btn {
+  border-color: var(--nb-border) !important;
+  background: var(--nb-lavender) !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .pf-rank-demo-close-btn:hover {
+  background: var(--nb-ink) !important;
+  border-color: var(--nb-ink) !important;
+  color: var(--nb-paper) !important;
+}
+body.theme-notebook .pf-inline-help-btn:hover {
+  border-color: var(--nb-border) !important;
+  background: var(--nb-lavender) !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .pf-inline-help-btn[aria-expanded="true"] {
+  border-color: var(--nb-ink) !important;
+  background: var(--nb-lavender-2) !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .pf-rank-demo-expand-btn {
+  border-color: var(--nb-border) !important;
+  background: var(--nb-lavender) !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .pf-rank-demo-expand-btn:hover {
+  border-color: var(--nb-ink) !important;
+  background: var(--nb-ink) !important;
+  color: var(--nb-paper) !important;
+}
+body.theme-notebook .pf-rank-demo-modal-card {
+  background: var(--nb-paper-2) !important;
+  border-color: var(--nb-border) !important;
+  box-shadow: var(--nb-shadow);
+}
+body.theme-notebook .pf-rank-demo-modal-title {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+}
+body.theme-notebook .pf-rank-demo-modal-scrim {
+  background: rgba(74, 61, 156, 0.45);
+}
+body.theme-notebook .pf-rank-demo-note {
+  color: var(--nb-ink-soft) !important;
+  font-family: var(--nb-hand);
+}
+body.theme-notebook .pf-rank-demo-limit {
+  background: var(--nb-lavender-2) !important;
+  color: var(--nb-ink) !important;
+  width: auto !important;
+  height: auto !important;
+  flex: 0 0 auto !important;
+  font-family: var(--nb-hand);
+}
+body.theme-notebook .pf-rank-demo-pause-btn {
+  border-color: var(--nb-border) !important;
+  background: var(--nb-paper-2) !important;
+  color: var(--nb-ink-soft) !important;
+}
+body.theme-notebook .pf-rank-demo-pause-btn:hover,
+body.theme-notebook .pf-rank-demo-pause-btn[aria-pressed="true"] {
+  background: #fff8e1 !important;
+  border-color: #e6a817 !important;
+  color: #9a6700 !important;
+}
+body.theme-notebook .pf-rank-demo-label {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+}
+body.theme-notebook .pf-rank-demo-step,
+body.theme-notebook .pf-rank-demo-callout,
+body.theme-notebook .pf-rank-demo-pool-label {
+  font-family: var(--nb-hand);
+}
+body.theme-notebook .pf-rank-demo-caption {
+  color: var(--nb-ink-soft) !important;
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook .pf-time-earned-heading {
+  align-items: center;
+}
+body.theme-notebook .pf-banked-dropdown-trigger .pf-banked-chevron {
+  color: var(--nb-ink-soft);
+  font-family: var(--nb-hand);
+  font-size: 0.85em;
+  margin-top: 0;
+}
+body.theme-notebook .pf-banked-dropdown-trigger:hover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+body.theme-notebook .pf-banked-dropdown-trigger:hover .pf-banked-chevron {
+  color: var(--nb-ink);
+}
+
+/* Numbered step badges (How Tab Shield Works) stay legible */
+body.theme-notebook .content-box span[style*="border-radius: 50%"] {
+  color: #fff !important;
+  font-family: var(--nb-font);
+}
+
+/* ════════════════ BUTTONS ════════════════
+   Default = pencil-outline on paper. Inline colors overridden. */
+body.theme-notebook .content-box button,
+body.theme-notebook .collapsible-header {
+  font-family: var(--nb-hand) !important;
+  font-size: 1em !important;
+  font-weight: 700 !important;
+  background: var(--nb-paper) !important;
+  color: var(--nb-ink) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+  cursor: pointer;
+  transition: transform var(--nb-t), background var(--nb-t), box-shadow var(--nb-t);
+}
+
+body.theme-notebook .content-box button:hover:not(:disabled),
+body.theme-notebook .collapsible-header:hover {
+  background: var(--nb-lavender) !important;
+  box-shadow: 0 3px 10px rgba(74, 61, 156, 0.22);
+}
+body.theme-notebook .content-box button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+body.theme-notebook .content-box button:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+body.theme-notebook button:focus-visible,
+body.theme-notebook input:focus-visible,
+body.theme-notebook select:focus-visible {
+  outline: 3px solid rgba(92, 79, 181, 0.45);
+  outline-offset: 0;
+}
+
+/* Filled-purple primary buttons */
+body.theme-notebook #selectPauseDuration,
+body.theme-notebook #confirmStartupSlots,
+body.theme-notebook #addWindowToBanking,
+body.theme-notebook #addCustomStartupBtn,
+body.theme-notebook #dashboardSignInBtn,
+body.theme-notebook #studyTimerStartBtn {
+  background: var(--nb-fill) !important;
+  color: var(--nb-paper) !important;
+  border-color: var(--nb-fill) !important;
+}
+body.theme-notebook #selectPauseDuration:hover:not(:disabled),
+body.theme-notebook #confirmStartupSlots:hover:not(:disabled),
+body.theme-notebook #addWindowToBanking:hover:not(:disabled),
+body.theme-notebook #addCustomStartupBtn:hover:not(:disabled),
+body.theme-notebook #dashboardSignInBtn:hover:not(:disabled),
+body.theme-notebook #studyTimerStartBtn:hover:not(:disabled) {
+  background: var(--nb-fill-hover) !important;
+  border-color: var(--nb-fill-hover) !important;
+}
+
+/* Break timer — green outline (not heavy purple fill) */
+body.theme-notebook #unprodTimerStartBtn {
+  background: var(--nb-paper) !important;
+  color: var(--nb-ok) !important;
+  border-color: var(--nb-ok) !important;
+}
+body.theme-notebook #unprodTimerStartBtn:hover:not(:disabled) {
+  background: rgba(78, 154, 106, 0.12) !important;
+}
+
+/* Success accent (banked time) */
+body.theme-notebook #useBankedTime {
+  background: var(--nb-ok) !important;
+  color: #fff !important;
+  border-color: #2d7a47 !important;
+}
+
+/* Destructive buttons */
+body.theme-notebook #unprodTimerCancelBtn,
+body.theme-notebook #studyTimerStopBtn,
+body.theme-notebook #unprodTimerPauseBtn,
+body.theme-notebook #clearHeatmap,
+body.theme-notebook #wipeHostnameBtn,
+body.theme-notebook #headerSignOutBtn {
+  background: var(--nb-paper) !important;
+  color: var(--nb-danger) !important;
+  border: 2px solid var(--nb-danger) !important;
+}
+
+/* Collapsible header keeps caret + left align */
+body.theme-notebook .collapsible-header {
+  text-align: left !important;
+  border-radius: 12px !important;
+}
+
+/* ════════════════ INPUTS & SELECTS ════════════════ */
+body.theme-notebook .content-box input[type="number"],
+body.theme-notebook .content-box input[type="text"],
+body.theme-notebook .content-box input[type="email"],
+body.theme-notebook .content-box input[type="password"] {
+  font-family: var(--nb-hand) !important;
+  font-size: 1.05em !important;
+  color: var(--nb-ink) !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid rgba(155, 145, 212, 0.55) !important;
+  border-radius: 0 !important;
+  padding: 5px 4px !important;
+}
+body.theme-notebook .content-box input::placeholder {
+  color: var(--nb-muted) !important;
+  font-family: var(--nb-hand) !important;
+  opacity: 1;
+}
+body.theme-notebook .content-box input:focus {
+  border-bottom-color: var(--nb-ink) !important;
+  outline: none;
+}
+
+/* Prominent boxed field: Tab Limit */
+body.theme-notebook #tabLimitWrapper {
+  background: #fff !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+}
+body.theme-notebook #tabLimitWrapper input {
+  border: none !important;
+  border-bottom: 2px dashed rgba(155, 145, 212, 0.45) !important;
+}
+
+body.theme-notebook .content-box select {
+  font-family: var(--nb-font) !important;
+  font-size: 1.05em !important;
+  color: var(--nb-ink) !important;
+  background-color: #fff !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 8px !important;
+  padding: 6px 30px 6px 12px !important;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 Q6 7 11 1.5' stroke='%239B91D4' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+}
+
+/* ════════════════ CHECKBOX → PILL TOGGLES (main section switches only) ════════════════ */
+body.theme-notebook .content-box input[type="checkbox"].nb-pill-toggle,
+body.theme-notebook #enablePause,
+body.theme-notebook #enableRewards,
+body.theme-notebook #enableAdvancedBankedTime,
+body.theme-notebook #enableBankedTime,
+body.theme-notebook #enableTabLife,
+body.theme-notebook #enableWipeTabTimes,
+body.theme-notebook #resetSessionCheck,
+body.theme-notebook #idlePauseToggle {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 48px;
+  height: 26px;
+  border-radius: 26px;
+  background: var(--nb-toggle-off);
+  border: 2px solid var(--nb-border);
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin: 0 2px 0 0;
+  vertical-align: middle;
+  transition: background var(--nb-t);
+  box-sizing: border-box;
+}
+body.theme-notebook .content-box input[type="checkbox"].nb-pill-toggle::before,
+body.theme-notebook #enablePause::before,
+body.theme-notebook #enableRewards::before,
+body.theme-notebook #enableAdvancedBankedTime::before,
+body.theme-notebook #enableBankedTime::before,
+body.theme-notebook #enableTabLife::before,
+body.theme-notebook #enableWipeTabTimes::before,
+body.theme-notebook #resetSessionCheck::before,
+body.theme-notebook #idlePauseToggle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  transition: transform var(--nb-t);
+  transform: translateY(-50%);
+}
+body.theme-notebook .content-box input[type="checkbox"].nb-pill-toggle:checked,
+body.theme-notebook #enablePause:checked,
+body.theme-notebook #enableRewards:checked,
+body.theme-notebook #enableAdvancedBankedTime:checked,
+body.theme-notebook #enableBankedTime:checked,
+body.theme-notebook #enableTabLife:checked,
+body.theme-notebook #enableWipeTabTimes:checked,
+body.theme-notebook #resetSessionCheck:checked,
+body.theme-notebook #idlePauseToggle:checked {
+  background: var(--nb-toggle-on);
+}
+body.theme-notebook .content-box input[type="checkbox"].nb-pill-toggle:checked::before,
+body.theme-notebook #enablePause:checked::before,
+body.theme-notebook #enableRewards:checked::before,
+body.theme-notebook #enableAdvancedBankedTime:checked::before,
+body.theme-notebook #enableBankedTime:checked::before,
+body.theme-notebook #enableTabLife:checked::before,
+body.theme-notebook #enableWipeTabTimes:checked::before,
+body.theme-notebook #resetSessionCheck:checked::before,
+body.theme-notebook #idlePauseToggle:checked::before {
+  transform: translateY(-50%) translateX(22px);
+}
+
+/* Sub-option checkboxes: hand-drawn square + checkmark */
+body.theme-notebook #autoCloseDashboard,
+body.theme-notebook #autoShieldPopouts,
+body.theme-notebook #devAskEveryPageToggle {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--nb-border);
+  border-radius: 3px;
+  background: var(--nb-paper);
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin: 0;
+  vertical-align: middle;
+}
+body.theme-notebook #autoCloseDashboard:checked,
+body.theme-notebook #autoShieldPopouts:checked,
+body.theme-notebook #devAskEveryPageToggle:checked {
+  background: var(--nb-lavender);
+}
+body.theme-notebook #autoCloseDashboard:checked::after,
+body.theme-notebook #autoShieldPopouts:checked::after,
+body.theme-notebook #devAskEveryPageToggle:checked::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--nb-hand);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--nb-ink);
+  line-height: 1;
+}
+
+/* ════════════════ ENFORCER PILL (existing slider) ════════════════ */
+body.theme-notebook #enforcerSlider {
+  background: var(--nb-toggle-off) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 26px !important;
+  transition: background var(--nb-t) !important;
+}
+body.theme-notebook #enforcerSlider::before {
+  top: 50%;
+  left: 3px;
+  bottom: auto;
+  border: 1px solid rgba(74, 61, 156, 0.2);
+  transition: transform var(--nb-t), background var(--nb-t);
+  transform: translateY(-50%);
+}
+body.theme-notebook #enforcerToggle:checked + #enforcerSlider {
+  background: var(--nb-toggle-on) !important;
+}
+body.theme-notebook #enforcerToggle:checked + #enforcerSlider::before {
+  transform: translateY(-50%) translateX(22px);
+}
+
+/* ════════════════ SLIDERS ════════════════ */
+body.theme-notebook input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: rgba(155, 145, 212, 0.28);
+  border-radius: 999px;
+  border: 1px solid var(--nb-border);
+}
+body.theme-notebook input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--nb-fill);
+  border: 3px solid var(--nb-paper);
+  box-shadow: 0 2px 6px rgba(98, 86, 168, 0.35);
+  cursor: pointer;
+}
+body.theme-notebook input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--nb-fill);
+  border: 3px solid var(--nb-paper);
+  cursor: pointer;
+}
+
+/* ════════════════ STATUS / CHIPS / LOCK ════════════════ */
+body.theme-notebook .startup-chip {
+  background: #fff !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 999px !important;
+  font-family: var(--nb-font);
+  font-weight: 700;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .dot-on {
+  background: var(--nb-ok) !important;
+  box-shadow: 0 0 5px rgba(78, 154, 106, 0.5) !important;
+}
+body.theme-notebook .dot-off {
+  background: var(--nb-danger) !important;
+}
+body.theme-notebook #tabLimitLockBtn {
+  font-family: var(--nb-font) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 8px !important;
+}
+body.theme-notebook #tabLimitLockBtn.is-unlocked {
+  background: rgba(180, 86, 106, 0.14) !important;
+  color: #8f3340 !important;
+}
+body.theme-notebook #tabLimitLockBtn.is-locked {
+  background: rgba(78, 154, 106, 0.16) !important;
+  color: #2d6a3e !important;
+}
+
+/* ════════════════ STATS TAB ════════════════ */
+body.theme-notebook .sub-tabs {
+  background: rgba(74, 61, 156, 0.06) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 12px !important;
+  padding: 6px !important;
+}
+body.theme-notebook .sub-tab {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-hand);
+  font-size: 1.12em;
+  font-weight: 700;
+  border-radius: 9px;
+  position: relative;
+  transition: background var(--nb-t);
+}
+body.theme-notebook .sub-tab.active {
+  background: var(--nb-paper) !important;
+  color: var(--nb-ink) !important;
+  box-shadow: 0 2px 7px rgba(74, 61, 156, 0.18);
+}
+body.theme-notebook .sub-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 4px;
+  height: 4px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 6' preserveAspectRatio='none'%3E%3Cpath d='M1 4 Q12 1 24 3.5 T48 3 T72 4 T99 2.5' stroke='%239B91D4' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+body.theme-notebook .sub-tab:not(.active):hover {
+  background: rgba(74, 61, 156, 0.10) !important;
+}
+
+/* Minute/Hour/Day/Week segmented control */
+body.theme-notebook .time-view-toggle {
+  background: rgba(74, 61, 156, 0.06) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+  gap: 6px !important;
+}
+body.theme-notebook .time-view-toggle .time-view-btn {
+  color: var(--nb-ink) !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-size: 0.88em !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  border: 2px solid transparent !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+}
+body.theme-notebook .time-view-toggle .time-view-btn:hover:not(.active) {
+  border-color: rgba(155, 145, 212, 0.35) !important;
+}
+body.theme-notebook .time-view-toggle .time-view-btn.active {
+  background: var(--nb-fill) !important;
+  color: var(--nb-paper) !important;
+  border-color: var(--nb-fill) !important;
+  box-shadow: 0 2px 6px rgba(98, 86, 168, 0.25);
+}
+
+body.theme-notebook #wpmChartContainer {
+  padding: 12px !important;
+}
+body.theme-notebook #wpmChartLabels {
+  color: var(--nb-ink) !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-size: 0.82em !important;
+  letter-spacing: normal !important;
+}
+body.theme-notebook #wpmChartLabels span {
+  color: var(--nb-ink) !important;
+  font-weight: 600 !important;
+}
+body.theme-notebook #typingChart {
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+  min-height: 380px !important;
+  height: min(52vh, 480px) !important;
+}
+
+body.theme-notebook .pvu-chart-wrap,
+body.theme-notebook .pvu-chart {
+  background: var(--nb-paper-2) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--nb-shadow-card);
+}
+body.theme-notebook .pvu-chart {
+  border-left: 6px solid var(--nb-fill) !important;
+}
+body.theme-notebook .pvu-hour-heading {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .real-productivity-comparison-up {
+  color: var(--nb-ok) !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 600 !important;
+}
+body.theme-notebook .pvu-breakdown,
+body.theme-notebook .pvu-breakdown * {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  letter-spacing: normal !important;
+}
+body.theme-notebook .pvu-breakdown {
+  background: rgba(255, 254, 251, 0.92) !important;
+  border: 2px solid rgba(155, 145, 212, 0.45) !important;
+  box-shadow: 0 10px 28px rgba(74, 61, 156, 0.16) !important;
+}
+body.theme-notebook .pvu-breakdown-title {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 600 !important;
+  color: var(--nb-ink) !important;
+}
+body.theme-notebook .pvu-breakdown-col h4 {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 600 !important;
+}
+body.theme-notebook .daily-sites-panel {
+  background: var(--nb-paper-2) !important;
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 14px !important;
+  border-left: 6px solid var(--nb-fill) !important;
+}
+body.theme-notebook .daily-sites-day {
+  background: var(--nb-paper) !important;
+  border-color: rgba(155, 145, 212, 0.35) !important;
+}
+body.theme-notebook .daily-sites-heading {
+  color: var(--nb-ink) !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+
+/* ════════════════ CUSTOMISATIONS / CAROUSEL ════════════════ */
+body.theme-notebook .theme-card-label {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+  font-size: 1.2em;
+  font-weight: 700;
+}
+body.theme-notebook .theme-card.theme-locked .theme-card-label {
+  font-family: var(--nb-hand) !important;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--nb-ink-soft) !important;
+}
+body.theme-notebook .theme-card-preview {
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  transition: transform var(--nb-t), box-shadow var(--nb-t);
+}
+body.theme-notebook .theme-card.theme-owned .theme-card-preview:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--nb-shadow-hover);
+}
+body.theme-notebook .theme-card.theme-owned .theme-card-preview:active {
+  transform: scale(0.98);
+}
+body.theme-notebook .theme-card.theme-owned.theme-selected .theme-card-preview {
+  box-shadow: 0 0 0 3px rgba(74, 61, 156, 0.4), var(--nb-shadow-card);
+}
+body.theme-notebook .theme-badge-owned {
+  background: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+  font-size: 0.78em;
+}
+body.theme-notebook .theme-card.theme-locked .theme-card-preview {
+  border-style: dashed !important;
+  background: rgba(74, 61, 156, 0.04) !important;
+  opacity: 0.7;
+}
+body.theme-notebook .theme-mock-notebook {
+  background: linear-gradient(180deg, var(--nb-paper) 0%, #fff 42%) !important;
+}
+body.theme-notebook .theme-mock-bar {
+  background: var(--nb-ink) !important;
+}
+body.theme-notebook .theme-carousel-footer {
+  color: var(--nb-muted) !important;
+  font-family: var(--nb-hand) !important;
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-top: 8px;
+}
+body.theme-notebook #themeCarousel::-webkit-scrollbar-thumb {
+  background: rgba(74, 61, 156, 0.35);
+}
+
+/* ════════════════ KEEP TUTORIAL ELEMENTS DEFAULT ════════════════ */
+body.theme-notebook #tutorialOverlay,
+body.theme-notebook #tutorialContentWrapper,
+body.theme-notebook #tutorBox,
+body.theme-notebook .tutorial-box,
+body.theme-notebook #pf-tutorial-demo-card,
+body.theme-notebook #pf-tutorial-mock-indicator,
+body.theme-notebook #pf-tutorial-timer-mock {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ════════════════ HAND-DRAWN SKETCH BORDERS ════════════════
+   The defining notebook look: crisp CSS borders are swapped for wobbly
+   ink lines via the inline SVG filters (#notebook-sketch /
+   #notebook-sketch-strong) defined in stats.html.
+
+   Large / text-heavy containers get a border-ONLY ::after overlay that
+   is filtered on its own — so the text underneath stays perfectly sharp.
+   Small controls (tabs, inputs, toggles, buttons) take the filter
+   directly; their short text picks up only a gentle, on-theme waver. */
+
+/* --- Overlay hosts: hide their own border, draw the wobble on ::after --- */
+body.theme-notebook .content-box,
+body.theme-notebook .top-ten,
+body.theme-notebook .timer-card,
+body.theme-notebook #tabLifeContainer,
+body.theme-notebook #pauseContainer,
+body.theme-notebook #rewardsNestedContainer,
+body.theme-notebook #advancedBankedTimeBlock,
+body.theme-notebook #advancedEarnSpendBlock,
+body.theme-notebook #bankedTimeContainer,
+body.theme-notebook #rankingModeContainer,
+body.theme-notebook #sessionResetContainer,
+body.theme-notebook #idlePauseContainer,
+body.theme-notebook #enforcerToggleRow,
+body.theme-notebook #advancedOptionsRow,
+body.theme-notebook #specificLimitsWrapper,
+body.theme-notebook #otherWindowsList .row,
+body.theme-notebook #globalSnapshotDiagnostics,
+body.theme-notebook #heatmapContainer,
+body.theme-notebook #wpmChartContainer,
+body.theme-notebook #pfSignInRequiredBanner,
+body.theme-notebook #streakContainer,
+body.theme-notebook #timeBankedContainer,
+body.theme-notebook #advancedLimitsSection,
+body.theme-notebook .theme-card-preview,
+body.theme-notebook .sub-tabs,
+body.theme-notebook .time-view-toggle {
+  position: relative;
+  border-color: transparent !important;
+  border-width: 2px !important;
+}
+
+body.theme-notebook .content-box::after,
+body.theme-notebook .top-ten::after,
+body.theme-notebook .timer-card::after,
+body.theme-notebook #tabLifeContainer::after,
+body.theme-notebook #pauseContainer::after,
+body.theme-notebook #rewardsNestedContainer::after,
+body.theme-notebook #advancedBankedTimeBlock::after,
+body.theme-notebook #bankedTimeContainer::after,
+body.theme-notebook #rankingModeContainer::after,
+body.theme-notebook #sessionResetContainer::after,
+body.theme-notebook #idlePauseContainer::after,
+body.theme-notebook #enforcerToggleRow::after,
+body.theme-notebook #advancedOptionsRow::after,
+body.theme-notebook #specificLimitsWrapper::after,
+body.theme-notebook #otherWindowsList .row::after,
+body.theme-notebook #globalSnapshotDiagnostics::after,
+body.theme-notebook #heatmapContainer::after,
+body.theme-notebook #wpmChartContainer::after,
+body.theme-notebook #pfSignInRequiredBanner::after,
+body.theme-notebook #streakContainer::after,
+body.theme-notebook #timeBankedContainer::after,
+body.theme-notebook #advancedLimitsSection::after,
+body.theme-notebook .theme-card-preview::after,
+body.theme-notebook .sub-tabs::after,
+body.theme-notebook .time-view-toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2.4px solid var(--nb-border);
+  border-radius: inherit;
+  /* SVG-filter wobble removed from CHILD cards for scroll performance
+     (user report 2026-07 v48: "scrolling on the dashboard on Windows
+     gets really really laggy… especially on Window Settings"). The
+     filter forced every one of the ~20 cards below to become its own
+     composited layer with a per-frame SVG-turbulence pass — brutal on
+     Windows during scroll. Kept on the outermost .content-box::after
+     below (single element, still gives the page its hand-drawn frame)
+     and on the paper-hole strips (fixed-position, already isolated). */
+}
+/* Restore the sketch filter ONLY on the outer page frame so the notebook
+   look still reads at first glance without paying the per-card cost. */
+body.theme-notebook .content-box::after {
+  filter: var(--nb-sketch-strong);
+}
+
+/* Dashed wobble for the soft/optional containers + locked theme cards */
+body.theme-notebook #streakContainer::after,
+body.theme-notebook #timeBankedContainer::after,
+body.theme-notebook #advancedLimitsSection::after,
+body.theme-notebook .theme-card.theme-locked .theme-card-preview::after {
+  border-style: dashed;
+}
+
+/* The big page frame reads a touch heavier */
+body.theme-notebook .content-box::after {
+  border-width: 2.6px;
+}
+
+/* ════════════════ ADVANCED SETTINGS — STAR TOGGLE ════════════════ */
+body.theme-notebook #advancedOptionsRow {
+  position: relative;
+  cursor: pointer;
+  align-items: center;
+  gap: 12px !important;
+  isolation: isolate;
+}
+body.theme-notebook .nb-advanced-settings-label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-family: var(--nb-hand) !important;
+  font-weight: 700 !important;
+  color: var(--nb-ink) !important;
+  margin: 0;
+}
+body.theme-notebook .nb-advanced-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: auto;
+}
+body.theme-notebook .nb-advanced-star {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  transition: transform var(--nb-t);
+}
+body.theme-notebook #enableLimits:checked ~ .nb-advanced-star {
+  transform: scale(1.06);
+}
+
+/* ════════════════ SKETCH ICONS (data-icon spans in stats.html) ════════════════ */
+body.theme-notebook .nb-sketch-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: center / contain no-repeat;
+}
+body.theme-notebook .nb-sketch-icon:last-child {
+  margin-right: 0;
+}
+body.theme-notebook strong .nb-sketch-icon,
+body.theme-notebook label .nb-sketch-icon,
+body.theme-notebook button .nb-sketch-icon {
+  margin-right: 8px;
+}
+body.theme-notebook #streakContainer > .nb-sketch-icon {
+  width: 34px;
+  height: 34px;
+  margin-right: 0;
+}
+body.theme-notebook .nb-advanced-star {
+  width: 30px;
+  height: 30px;
+  margin-right: 10px;
+}
+body.theme-notebook .timer-card-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+body.theme-notebook label[for="enablePause"],
+body.theme-notebook label[for="enableRewards"],
+body.theme-notebook label[for="enableAdvancedBankedTime"],
+body.theme-notebook label[for="enableBankedTime"],
+body.theme-notebook label[for="enableTabLife"],
+body.theme-notebook label[for="resetSessionCheck"],
+body.theme-notebook label[for="idlePauseToggle"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.theme-notebook .nb-sketch-icon[data-icon="flame"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c77800' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22c3.5-2.5 6-5.8 6-9.5 0-2.2-.8-3.5-2.2-4.8C15.8 8.2 14.5 8 12 5c-2.5 3-4 3.2-5.8 4.7C4.8 11 4 12.3 4 14.5 4 18.2 6.5 21.5 12 22z'/%3E%3Cpath d='M12 22c-1.8-1.5-2.5-3.2-2.5-4.8 0-1.2.5-2 1.5-2.8.8-.6 1.5-1.5 1-2.7.8.5 1.2 1.2 1.5 2 .5-.2 1-.5 1.5-1.2.3 1.5 1.2 2.5 2.2 3.2 1 .8 1.5 1.8 1.5 3.3 0 1.6-.7 3.3-2.5 4.8z' fill='%23ffe8c8'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="pencil"] {
+  width: 18px;
+  height: 18px;
+  margin-right: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4l10-10-4-4L4 16v4z'/%3E%3Cpath d='M13.5 6.5l4 4'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="lock-open"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c77800' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="lock-closed"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238f3340' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="lock"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="star"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2.8l2.4 5.6 6 .5-4.6 3.9 1.4 5.9L12 15.8 6.8 18.7l1.4-5.9L3.6 8.9l6-.5z'/%3E%3C/svg%3E");
+}
+body.theme-notebook #enableLimits:checked ~ .nb-sketch-icon[data-icon="star"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238678CA' stroke='%238678CA' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2.8l2.4 5.6 6 .5-4.6 3.9 1.4 5.9L12 15.8 6.8 18.7l1.4-5.9L3.6 8.9l6-.5z'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="dashboard"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='13' rx='2'/%3E%3Ccircle cx='8' cy='10.5' r='1.2' fill='%236256A8'/%3E%3Ccircle cx='12' cy='10.5' r='1.2' fill='%236256A8'/%3E%3Ccircle cx='16' cy='10.5' r='1.2' fill='%236256A8'/%3E%3Cpath d='M9 19h6'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="shield-sm"] {
+  width: 20px;
+  height: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2.5L4 6v5.8c0 4.9 3.4 9.5 8 10.7 4.6-1.2 8-5.8 8-10.7V6z'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="target"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='8.5'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3Cpath d='M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="warning"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5L3.5 19h17z'/%3E%3Cpath d='M12 9v4.5'/%3E%3Ccircle cx='12' cy='16.5' r='0.8' fill='%236256A8'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="clock"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8.5'/%3E%3Cpath d='M12 7v5.5l3.5 2'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="plus"] {
+  width: 18px;
+  height: 18px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="person"] {
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.5'/%3E%3Cpath d='M5 20c0-3.5 3-6 7-6s7 2.5 7 6'/%3E%3C/svg%3E");
+}
+body.theme-notebook .nb-sketch-icon[data-icon="check"] {
+  width: 16px;
+  height: 16px;
+  margin-right: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232d6a3e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M8 12.2l2.4 2.4L16 9.2'/%3E%3C/svg%3E");
+}
+body.theme-notebook #headerSignOutBtn .nb-sketch-icon[data-icon="person"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B4566A' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.5'/%3E%3Cpath d='M5 20c0-3.5 3-6 7-6s7 2.5 7 6'/%3E%3C/svg%3E");
+}
+
+body.theme-notebook #editNameBtn .pf-control-icon[data-icon="pencil"],
+body.theme-notebook #pfProfileEditNameBtn .pf-control-icon[data-icon="pencil"],
+body.theme-notebook #tabLimitLockBtn .pf-control-icon[data-icon="lock-open"],
+body.theme-notebook #tabLimitLockBtn .pf-control-icon[data-icon="lock-closed"] {
+  display: inline-block !important;
+}
+body.theme-notebook .pf-control-icon[data-icon="pencil"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4l10-10-4-4L4 16v4z'/%3E%3Cpath d='M13.5 6.5l4 4'/%3E%3C/svg%3E");
+}
+body.theme-notebook .pf-control-icon[data-icon="lock-open"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a85460' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/%3E%3C/svg%3E");
+}
+body.theme-notebook .pf-control-icon[data-icon="lock-closed"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a9a6a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0'/%3E%3C/svg%3E");
+}
+
+body.theme-notebook #editNameBtn,
+body.theme-notebook #pfProfileEditNameBtn,
+body.theme-notebook #tabLimitLockBtn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 30px;
+  padding: 4px 8px !important;
+}
+/* Naked pencil buttons on notebook (user spec 2026-07 v16 "remove the
+   border around the pencil on the notebook skin"). The generic
+   `body.theme-notebook .content-box button` rule adds a 2px lavender
+   border to every button — override it here for the pencil / phrase-edit
+   buttons so they're just the icon, matching the default skin. */
+body.theme-notebook .content-box #editNameBtn,
+body.theme-notebook .content-box #pfProfileEditNameBtn,
+body.theme-notebook .content-box .pf-phrase-pencil {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  width: 28px !important;
+  height: 28px !important;
+  box-shadow: none !important;
+}
+body.theme-notebook .content-box #editNameBtn:hover,
+body.theme-notebook .content-box #pfProfileEditNameBtn:hover,
+body.theme-notebook .content-box .pf-phrase-pencil:hover {
+  background: rgba(91,75,159,0.12) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+body.theme-notebook #dashboardSignInBtn,
+body.theme-notebook #headerSignOutBtn {
+  align-items: center;
+  gap: 6px;
+}
+body.theme-notebook #addSpecificLimit {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  border: 2px dashed var(--nb-ink) !important;
+  background: var(--nb-paper) !important;
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-hand) !important;
+  font-weight: 700 !important;
+}
+body.theme-notebook #confirmTabLimit {
+  background: var(--nb-paper) !important;
+  color: var(--nb-ok) !important;
+  border: 2px solid var(--nb-ok) !important;
+  font-family: var(--nb-hand) !important;
+}
+body.theme-notebook #confirmTabLimit:disabled {
+  opacity: 0.42 !important;
+  color: var(--nb-muted) !important;
+  border-color: rgba(155, 145, 212, 0.35) !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* Pill toggles: kill inline margin misalignment */
+body.theme-notebook #idlePauseToggle {
+  margin-top: 2px !important;
+  align-self: flex-start;
+}
+body.theme-notebook .timer-hms {
+  border: 2px solid var(--nb-border) !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  padding: 6px 10px !important;
+}
+body.theme-notebook .timer-hms input[type="number"] {
+  font-family: var(--nb-hand) !important;
+  font-size: 1.15em !important;
+  font-weight: 700 !important;
+  color: var(--nb-ink) !important;
+  border-bottom: 2px dashed rgba(74, 61, 156, 0.45) !important;
+  width: 38px !important;
+  -moz-appearance: textfield;
+}
+body.theme-notebook .timer-hms input[type="number"]::-webkit-outer-spin-button,
+body.theme-notebook .timer-hms input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+body.theme-notebook .timer-hms-sep {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-hand) !important;
+  font-size: 1.2em !important;
+}
+body.theme-notebook .timer-hms-active {
+  background: rgba(134, 120, 202, 0.10) !important;
+  border-color: var(--nb-border) !important;
+}
+body.theme-notebook .timer-hms-idle {
+  background: rgba(108, 117, 125, 0.08) !important;
+  border-color: var(--nb-muted) !important;
+}
+body.theme-notebook .timer-hms-paused {
+  background: rgba(255, 152, 0, 0.08) !important;
+  border-color: #c77800 !important;
+}
+
+/* Soften inline dark-purple utility classes from stats.html markup */
+body.theme-notebook .content-box [style*="background: var(--pf-purple-100)"],
+body.theme-notebook .content-box [style*="background:var(--pf-purple-100)"] {
+  background: rgba(155, 145, 212, 0.14) !important;
+}
+body.theme-notebook .content-box [style*="border: 2px solid var(--pf-purple-300)"],
+body.theme-notebook .content-box [style*="border: 1px solid var(--pf-purple-300)"] {
+  border-color: rgba(155, 145, 212, 0.55) !important;
+}
+body.theme-notebook .content-box [style*="color: var(--pf-purple-600)"],
+body.theme-notebook .content-box [style*="color:var(--pf-purple-600)"],
+body.theme-notebook .content-box [style*="color: var(--pf-purple-text)"],
+body.theme-notebook .content-box [style*="color: #6f42c1"],
+body.theme-notebook .content-box [style*="color:#6f42c1"],
+body.theme-notebook .content-box [style*="color: #5B4B9F"],
+body.theme-notebook .content-box [style*="color:#5B4B9F"] {
+  color: var(--nb-ink-soft) !important;
+}
+body.theme-notebook .content-box span[style*="background: var(--pf-purple-600)"],
+body.theme-notebook .content-box span[style*="background:var(--pf-purple-600)"] {
+  background: var(--nb-fill) !important;
+}
+body.theme-notebook .content-box button[style*="background: var(--pf-purple-600)"],
+body.theme-notebook .content-box button[style*="background:var(--pf-purple-600)"] {
+  background: var(--nb-fill) !important;
+  border-color: var(--nb-fill) !important;
+  color: var(--nb-paper) !important;
+}
+
+/* ════════════════ DEV CHROME — default dashboard colors in notebook theme ════════════════ */
+body.theme-notebook .pf-default-chrome,
+body.theme-notebook .pf-default-chrome * {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  letter-spacing: normal !important;
+}
+
+body.theme-notebook #revertTutorialBtn.pf-default-chrome {
+  background: #dc3545 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: bold !important;
+}
+
+body.theme-notebook #resetRankingDemoBtn.pf-default-chrome {
+  background: #6f42c1 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: bold !important;
+  font-size: 0.85em !important;
+}
+
+body.theme-notebook .collapsible-section.pf-default-chrome {
+  background: transparent !important;
+  border: 1px solid #e0e0e0 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+body.theme-notebook .collapsible-section.pf-default-chrome::after,
+body.theme-notebook .pf-default-chrome #globalSnapshotDiagnostics::after {
+  content: none !important;
+  display: none !important;
+}
+
+body.theme-notebook .pf-default-chrome #devToolsToggle {
+  background: #f8f9fa !important;
+  color: #888 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  font-size: 0.85em !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+body.theme-notebook .pf-default-chrome #devToolsToggle:hover {
+  background: #eef0f2 !important;
+  box-shadow: none !important;
+}
+
+body.theme-notebook .pf-default-chrome #globalSnapshotDiagnostics {
+  background: #f8f9fa !important;
+  border: none !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  color: #444 !important;
+  transform: none !important;
+}
+
+body.theme-notebook .pf-default-chrome #wipeHostnameInput {
+  background: #fff !important;
+  border: 1px solid #ccc !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+}
+
+body.theme-notebook .pf-default-chrome #wipeHostnameBtn {
+  background: #dc3545 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+body.theme-notebook .pf-default-chrome #devAskEveryPageToggle {
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 13px !important;
+  min-height: 13px !important;
+  border: initial !important;
+  border-radius: initial !important;
+  background: initial !important;
+  position: static !important;
+}
+
+body.theme-notebook .pf-default-chrome #devAskEveryPageToggle:checked {
+  background: initial !important;
+}
+
+body.theme-notebook .pf-default-chrome #devAskEveryPageToggle:checked::after {
+  content: none !important;
+  display: none !important;
+}
+
+body.theme-notebook .pf-default-chrome [style*="color: #666"],
+body.theme-notebook .pf-default-chrome [style*="color:#666"] {
+  color: #666 !important;
+}
+
+body.theme-notebook .pf-default-chrome [style*="color: #888"],
+body.theme-notebook .pf-default-chrome [style*="color:#888"] {
+  color: #888 !important;
+}
+
+body.theme-notebook .pf-default-chrome [style*="color: #444"],
+body.theme-notebook .pf-default-chrome [style*="color:#444"] {
+  color: #444 !important;
+}
+
+body.theme-notebook .pf-default-chrome [style*="color: #28a745"],
+body.theme-notebook .pf-default-chrome [style*="color:#28a745"] {
+  color: #28a745 !important;
+}
+
+body.theme-notebook .pf-default-chrome [style*="border-top: 1px solid #e0e0e0"] {
+  border-top-color: #e0e0e0 !important;
+}
+
+/* ════════════════ EXTENSION POPUP (notebook) ════════════════ */
+body.theme-notebook.pf-popup {
+  width: 248px;
+  padding: 14px;
+  background: var(--nb-backdrop) !important;
+  font-family: var(--nb-hand);
+  font-size: 16px;
+  color: var(--nb-ink);
+}
+
+body.theme-notebook.pf-popup .popup-shell {
+  background: var(--nb-paper);
+  background-image: radial-gradient(rgba(74, 61, 156, 0.04) 1px, transparent 1.4px);
+  background-size: 5px 5px;
+  border: 2.5px solid var(--nb-border);
+  border-radius: 4px 16px 16px 16px;
+  box-shadow: var(--nb-shadow), inset 0 0 0 4px rgba(255, 255, 255, 0.35);
+  padding: 18px 14px 40px 25px;
+  position: relative;
+  overflow: hidden;
+}
+
+body.theme-notebook.pf-popup .popup-shell::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  bottom: calc(10px + mod(100% - 20px, 20px));
+  width: 14px;
+  overflow: hidden;
+  background-image:
+    radial-gradient(
+      circle at 7px 10px,
+      rgba(155, 145, 212, 0.35) 0 4px,
+      rgba(134, 120, 202, 0.75) 4px 6px,
+      transparent 6.5px
+    );
+  background-size: 14px 20px;
+  background-repeat: repeat-y;
+  filter: var(--nb-sketch);
+  pointer-events: none;
+}
+
+body.theme-notebook.pf-popup .top-right-shield-wrapper {
+  top: 6px;
+  right: 16px;
+}
+
+body.theme-notebook.pf-popup .popup-title {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+  font-weight: 700;
+  font-size: 1.45em;
+  margin: 0 0 16px;
+  padding-right: 44px;
+  padding-left: 3px;
+}
+
+body.theme-notebook.pf-popup .btn {
+  font-family: var(--nb-hand) !important;
+  font-size: 0.9em !important;
+  font-weight: 700 !important;
+  background: var(--nb-fill) !important;
+  color: var(--nb-paper) !important;
+  border: 2px solid var(--nb-fill) !important;
+  border-radius: 9px !important;
+  box-shadow: 0 2px 8px rgba(74, 61, 156, 0.18);
+  transition: transform var(--nb-t), background var(--nb-t), box-shadow var(--nb-t);
+  padding: 7px 14px !important;
+  margin: 8px auto 10px;
+  width: auto;
+  min-width: 138px;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+}
+
+body.theme-notebook.pf-popup .btn:hover {
+  background: var(--nb-fill-hover) !important;
+  border-color: var(--nb-fill-hover) !important;
+  box-shadow: 0 4px 12px rgba(74, 61, 156, 0.24);
+}
+
+body.theme-notebook.pf-popup .rate-link {
+  color: var(--nb-ink-soft);
+  font-family: var(--nb-hand);
+  font-size: 0.95em;
+}
+
+body.theme-notebook.pf-popup .top-right-shield.is-armed,
+body.theme-notebook.pf-popup .top-right-shield.is-active {
+  color: var(--nb-fill);
+}
+
+body.theme-notebook.pf-popup .top-right-shield.is-active {
+  background: var(--nb-lavender);
+}
+
+body.theme-notebook.pf-popup .top-right-shield:hover {
+  color: var(--nb-fill-hover);
+}
+
+body.theme-notebook.pf-popup .shield-countdown-text {
+  color: var(--nb-fill);
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook.pf-popup .shield-dropdown {
+  background: var(--nb-lavender);
+  border: 2px solid var(--nb-border);
+  border-radius: 10px;
+}
+
+body.theme-notebook.pf-popup .shield-dropdown h4 {
+  color: var(--nb-ink) !important;
+  font-family: var(--nb-font);
+}
+
+body.theme-notebook.pf-popup .shield-time {
+  color: var(--nb-ink);
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook.pf-popup .shield-url {
+  color: var(--nb-ink-soft);
+  font-family: var(--nb-hand);
+}
+
+body.theme-notebook.pf-popup .pf-classification-badge {
+  font-family: var(--nb-hand) !important;
+  border-radius: 10px !important;
+}
+
+/* Profile modal — keep default chrome; close/edit controls stay compact */
+body.theme-notebook .pf-profile-window,
+body.theme-notebook .pf-profile-window *:not(.nb-sketch-icon):not(.pf-control-icon) {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  letter-spacing: normal !important;
+}
+body.theme-notebook .pf-profile-close-btn,
+body.theme-notebook .pf-profile-edit-name-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  min-width: 36px;
+  min-height: 36px;
+  transform: none !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08) !important;
+}
+body.theme-notebook .pf-profile-edit-name-btn {
+  padding: 5px 10px !important;
+  min-width: 0;
+  min-height: 0;
+  background: none !important;
+  color: var(--pf-purple-600, #5B4B9F) !important;
+  border: 1px solid var(--pf-purple-600, #5B4B9F) !important;
+  border-radius: 8px !important;
+}
+body.theme-notebook .pf-profile-close-btn {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #555 !important;
+  border: none !important;
+  border-radius: 8px !important;
+}
+body.theme-notebook .pf-profile-close-btn:hover {
+  background: #f3f4f6 !important;
+  color: #222 !important;
+}
+body.theme-notebook .pf-profile-tab {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+body.theme-notebook .pf-profile-tab:hover:not(.active),
+body.theme-notebook .pf-profile-tab:focus-visible:not(.active) {
+  background: #f3effa !important;
+  color: var(--pf-purple-600, #5B4B9F) !important;
+  box-shadow: none !important;
+}
+body.theme-notebook .pf-profile-tab.active:hover,
+body.theme-notebook .pf-profile-tab.active:focus-visible {
+  background: #fff !important;
+  color: var(--pf-purple-600, #5B4B9F) !important;
+}
+
+/* ── Preview shells on notebook skin ──
+   Notebook sets body font-size: 18px (default is 16px), which cascades into
+   the preview shell and scales every em-sized element inside. Pin the
+   shell's font-size to 16px and its font-family back to the default sans
+   stack so it doesn't inherit --nb-font / --nb-hand (both of which have
+   wider glyph metrics than Segoe UI).
+
+   POSITIONING (user report 2026-07: "the notebook preview is still broken
+   it should be moved to the left a lot so its not off the screen"): the
+   default-theme floats the shell off the card's RIGHT edge with a large
+   negative `right` (e.g. -401px / -278px). On notebook that pushes the
+   ~252px shell entirely past the viewport's right edge — off screen.
+   Instead, place the shell INSIDE the card: static positioning (no
+   absolute, no negative offsets) so it sits in normal document flow,
+   always visible regardless of viewport width. It renders below the
+   settings row, above the Break-available badge, exactly where the
+   stacked `.pf-modeb-demo-layout` column already reserves space for it. */
+body.theme-notebook #pfSettingDemoShell_studyBreak,
+body.theme-notebook #pfSettingDemoShell_modeBEarnSpend {
+  font-size: 16px !important;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+body.theme-notebook #pfSettingDemoShell_studyBreak *,
+body.theme-notebook #pfSettingDemoShell_modeBEarnSpend * {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+/* Work Timer preview on notebook (user spec 2026-07 v38.1): small nudge
+   back LEFT. Was right:-120. */
+body.theme-notebook #pfSettingDemoShell_studyBreak {
+  top: -100px !important;
+  right: -90px !important;
+}
+/* Advanced Earn/Spend preview — already in the right spot on notebook. */
+body.theme-notebook #pfSettingDemoShell_modeBEarnSpend {
+  top: -244px !important;
+  right: -38px !important;
+}

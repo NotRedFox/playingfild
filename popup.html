@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>>=PlayingFild</title>
+  <link rel="stylesheet" href="shared/brand-tokens.css">
+  <!-- fonts.css must be loaded BEFORE notebook.css so the @font-face
+       declarations for Caveat / Patrick Hand are registered when the
+       notebook theme's font-family rules try to use them. Without this
+       the .popup-title falls back to Segoe UI / sans-serif. -->
+  <link rel="stylesheet" href="themes/fonts.css">
+  <link rel="stylesheet" href="themes/notebook.css">
+  <style>
+    body {
+      width: 220px;
+      padding: 15px;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      text-align: center;
+      background: #fff;
+      margin: 0;
+      color: #212529;
+    }
+    .popup-shell { position: relative; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 7px 12px;
+      margin-top: 6px;
+      margin-bottom: 8px;
+      background: var(--pf-purple-600);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 0.88em;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.1s ease;
+    }
+    .btn:hover { background: var(--pf-purple-700); }
+    .shield-dropdown {
+      display: none;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      margin: 10px 0;
+      padding: 10px;
+    }
+    .shield-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #e9ecef;
+    }
+    .shield-item:last-child { border-bottom: none; }
+    .shield-icon { color: #28a745; margin-right: 5px; }
+    .shield-time { font-weight: bold; color: #495057; }
+    .shield-url {
+      font-size: 0.8em;
+      color: #6c757d;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .top-right-shield-wrapper {
+      position: absolute;
+      /* Was top:-2px which pinned the shield right up against the popup
+         title — the countdown ("5:00") below the icon was hidden behind
+         the title text. Give it enough negative-top for the icon to sit
+         above the title AND leave room for the countdown pill.
+         Per user report 2026-07 on the default/tutorial skin. */
+      top: -8px;
+      right: 6px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      z-index: 5;
+      max-width: 50px;
+    }
+    .top-right-shield-wrapper.is-visible { display: flex; }
+    .top-right-shield {
+      font-size: 24px;
+      cursor: pointer;
+      color: #6c757d;
+      background: transparent;
+      border-radius: 50%;
+      transition: color 0.15s ease, transform 0.15s ease;
+      line-height: 1;
+    }
+    .top-right-shield.is-armed { color: #5B4B9F; }
+    .top-right-shield.is-active { color: #5B4B9F; background: #F0EBF8; }
+    .top-right-shield:hover {
+      color: var(--pf-purple-600);
+      transform: scale(1.1);
+    }
+    .shield-countdown-text {
+      font-size: 0.7em;
+      color: #5B4B9F;
+      font-weight: bold;
+      text-align: center;
+      /* Was min-height:1em — collapsed to nothing when empty, so on the
+         default skin the countdown had no reserved space and the title
+         ate the layout. Pin a stable min-height so it's always visible
+         when armed/active. */
+      min-height: 12px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .popup-title {
+      margin: 4px 0 10px;
+      padding-right: 48px;
+      font-size: 1.05em;
+    }
+    /* Un-analyzable page mock (chrome://, brave://, PDFs, etc.). Mirrors
+       the on-page floating button + a bubble caption above it so the
+       user recognizes the affordance. */
+    #pfPopupUnanalyzable {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .pf-unanalyzable-bubble {
+      position: relative;
+      max-width: 190px;
+      padding: 8px 10px;
+      background: #f3efff;
+      border: 1px solid #d5cee6;
+      border-radius: 8px;
+      color: #4b4064;
+      font-size: 0.82em;
+      line-height: 1.35;
+      text-align: center;
+    }
+    /* Mock button + tail removed 2026-07 per user report — the big black
+       circle looked oversized in the popup; a bubble alone is enough. */
+  </style>
+</head>
+<body>
+  <div class="popup-shell">
+    <div class="top-right-shield-wrapper" id="topRightShieldWrapper">
+      <div class="top-right-shield" id="topRightShield" title=">=PlayingFild Protection">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+        </svg>
+      </div>
+      <div id="shieldCountdown" class="shield-countdown-text"></div>
+    </div>
+
+    <h3 class="popup-title">>=PlayingFild</h3>
+    <!-- Un-analyzable-page hint: shown when the active tab is on a
+         browser-internal URL (chrome://, brave://, PDFs, etc.) that
+         content scripts can't touch. Rendered as a mock of the on-page
+         floating button with a speech bubble above it, so the user
+         mentally maps this to the button they normally see in-page.
+         Wired by popup.js enrichPopupAsync — hidden by default. -->
+    <div id="pfPopupUnanalyzable" style="display:none; margin:10px 0 12px;">
+      <div class="pf-unanalyzable-bubble">This page can't be analyzed. It still counts toward your tab limit.</div>
+    </div>
+    <button id="openDashboard" class="btn">Open Dashboard</button>
+    <!-- Privacy-blocked hint (user spec 2026-07 v18): for sites in the
+         excluded_hosts list (banking, gmail, AI tools, health, etc.)
+         we intentionally do NOT read the page content — so the closer
+         has no classification for it. Surface the reason HERE below
+         the Open Dashboard button instead of the old floating text
+         above the pill, which was cluttering the page. The truly
+         un-analyzable notice (pfPopupUnanalyzable) still handles the
+         separate case of chrome:// / Web Store / extension pages. -->
+    <div id="pfPopupPrivacyBlocked" style="display:none; margin:10px 0 0;">
+      <div class="pf-unanalyzable-bubble">This site is not classified for privacy reasons. It still counts toward your tab limit.</div>
+    </div>
+
+    <div id="shieldDropdown" class="shield-dropdown">
+      <h4 style="margin: 0 0 10px 0; color: #495057; font-size: 0.9em;">Active Shields</h4>
+      <div id="shieldList"></div>
+    </div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

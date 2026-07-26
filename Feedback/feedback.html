@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(15px) saturate(180%);
+      -webkit-backdrop-filter: blur(15px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      border-radius: 14px;
+      padding: 12px;
+      font-family: 'Segoe UI', sans-serif;
+      color: #333;
+      text-align: center;
+    }
+    body.success-tint {
+      background: radial-gradient(
+        circle at center,
+        rgba(34, 197, 94, 0.4) 0%,
+        rgba(255, 255, 255, 0.2) 100%
+      );
+      border-color: rgba(34, 197, 94, 0.5);
+      transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s ease;
+    }
+    body.error-tint {
+      background: radial-gradient(
+        circle at center,
+        rgba(239, 68, 68, 0.4) 0%,
+        rgba(255, 255, 255, 0.2) 100%
+      );
+      border-color: rgba(239, 68, 68, 0.5);
+      transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s ease;
+    }
+    .score { font-size: 2.5em; color: #ff4757; font-weight: bold; margin: 10px 0; }
+    .site { font-style: italic; color: #666; margin-bottom: 20px; }
+    .btn-group { display: flex; gap: 10px; justify-content: center; }
+    button { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; opacity: 1; }
+    .yes { background: #2ed573; color: white; }
+    .no { background: #ff4757; color: white; }
+    button:hover { opacity: 0.8; transform: translateY(-2px); }
+  </style>
+</head>
+<body>
+  <h3>Context Check</h3>
+  <p>I closed this tab because I was</p>
+  <div id="conf" class="score">0%</div>
+  <p>confident it was unproductive.</p>
+  <div class="site">
+    <img id="siteFavicon" style="width:16px;height:16px;margin-right:6px;vertical-align:middle;" />
+    <span id="siteDomain"></span>
+    <span id="siteTitle" style="color:#999;font-size:0.85em;margin-left:6px;"></span>
+  </div>
+  <p id="trapWarning" style="display:none; color:#ff4757; font-size:0.85em; margin-bottom:5px;">⚠️ Are you sure? This site is almost certainly unproductive.</p>
+  <p id="feedbackQuestion">Was this tab productive?</p>
+  <div class="btn-group">
+    <button id="yesBtn" class="yes">Yes, it was</button>
+    <button id="noBtn" class="no">No, it wasn't</button>
+  </div>
+  <script src="Feedback.js"></script>
+</body>
+</html>
