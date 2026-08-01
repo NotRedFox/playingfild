@@ -87,7 +87,13 @@ export function getEffectiveTabUrl(tab) {
  * These are the extension's own control surfaces (dashboard, sign-in) — the
  * user shouldn't be forced to evict their own tabs just to use the extension.
  */
-const PF_EXEMPT_EXTENSION_PATHS = ['stats.html', 'signup.html', 'signin.html'];
+// v83: banked.html joins the exempt list (user spec: "banked tabs don't count
+// as a tab"). The banked tabs themselves are already closed, so they cost
+// nothing — but the ONE stash tab listing them would otherwise occupy a slot,
+// which is perverse: parking tabs to get under the limit would immediately
+// eat one of the slots you just freed. It is also excluded from eviction by
+// the same path, so the limit can never close the list of what it banked.
+const PF_EXEMPT_EXTENSION_PATHS = ['stats.html', 'signup.html', 'signin.html', 'banked.html'];
 
 function urlMatchesExemptExtensionPath(url) {
   const u = String(url || '').toLowerCase();

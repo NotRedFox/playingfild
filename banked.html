@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Banked tabs</title>
+  <link rel="icon" href="icon48.png">
+  <link rel="stylesheet" href="shared/brand-tokens.css">
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      padding: 40px 24px 64px;
+      font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+      color: #1f2430;
+      background: #faf9fd;
+    }
+    .wrap { max-width: 680px; margin: 0 auto; }
+    h1 { font-size: 1.6em; margin: 0 0 6px; }
+    .sub { color: #6b7280; margin: 0 0 4px; line-height: 1.5; }
+    /* The countdown is the one piece of information that prevents data loss,
+       so it is stated plainly rather than tucked away. */
+    .expiry {
+      display: inline-block;
+      margin: 14px 0 22px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: #fff4e5;
+      border: 1px solid #f0d3a0;
+      color: #8a5a00;
+      font-weight: 700;
+      font-size: 0.95em;
+    }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+    button {
+      padding: 9px 16px;
+      border-radius: 9px;
+      border: 1px solid #d8d0f0;
+      background: #fff;
+      color: var(--pf-purple-600, #5B4B9F);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #f3f0fc; }
+    button.primary {
+      background: var(--pf-purple-600, #5B4B9F);
+      border-color: var(--pf-purple-600, #5B4B9F);
+      color: #fff;
+    }
+    button.primary:hover { background: var(--pf-purple-700, #4A3D85); }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      background: #fff;
+      border: 1px solid #e6e2f2;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    li img { width: 18px; height: 18px; flex: 0 0 auto; border-radius: 4px; }
+    .meta { flex: 1 1 auto; min-width: 0; }
+    .t {
+      display: block;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .u {
+      display: block;
+      font-size: 0.84em;
+      color: #8a8399;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    li button { padding: 6px 12px; font-size: 0.88em; }
+    .empty { color: #6b7280; padding: 28px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Banked tabs</h1>
+    <p class="sub">These were open when you set your tab limit. They are not running, so they use no memory, and nothing here has been sent anywhere.</p>
+    <p class="sub">Reopen the ones you still want.</p>
+    <div class="expiry" id="expiry">Working out how long these last…</div>
+    <div class="actions">
+      <button type="button" class="primary" id="restoreAll">Reopen all</button>
+      <button type="button" id="discardAll">Discard all</button>
+    </div>
+    <ul id="list"></ul>
+    <p class="empty" id="empty" hidden>Nothing is banked right now.</p>
+  </div>
+  <script type="module" src="banked.js"></script>
+</body>
+</html>

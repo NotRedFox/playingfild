@@ -82,6 +82,38 @@ const ALLOWED_PROPERTIES = {
   theme_selected:            new Set(['theme'])
 };
 
+// ── Events allowed BEFORE sign-in (user spec 2026-07-30) ────────────────
+// Until now capture() refused to send ANYTHING without a session. Since the
+// entire tutorial runs before the user signs in, that silently discarded the
+// whole onboarding funnel — every tutorial_* event, signin_reached, and both
+// _submitted events. The dashboard showed zeros and looked like a tracking
+// bug; it was this gate.
+//
+// These specific events may now go out signed-out. Every one of them is
+// already anonymous by construction: the distinct_id is a random UUID that
+// never joins to email or auth, and sanitizeProps() strips anything not in
+// ALLOWED_PROPERTIES, so no URL, title, hostname or free text can ride along.
+// They answer one question only — where does onboarding lose people.
+//
+// Everything NOT listed here (usage events: tab_limit_hit, timer_*,
+// shield_activated, recap_shared, signout) still waits for a session, so a
+// signed-out install sends onboarding shape and nothing about actual browsing.
+//
+// The user-facing "Send anonymous product analytics" switch and the bot
+// shadow-ban both still apply first — this widens WHEN we send, not WHAT.
+const PRE_SIGNIN_EVENTS = new Set([
+  'install',
+  'tutorial_started',
+  'tutorial_step_reached',
+  'tutorial_skipped',
+  'tutorial_completed',
+  'signin_reached',
+  'signup_submitted',
+  'signin_submitted',
+  'password_reset_requested',
+  'theme_selected'
+]);
+
 // Bounded string / integer sanitization — enums only, no free text.
 function sanitizeProps(eventName, propsIn) {
   const allowed = ALLOWED_PROPERTIES[eventName];
@@ -101,6 +133,25 @@ function sanitizeProps(eventName, propsIn) {
     }
   }
   return out;
+}
+
+/**
+ * v83: which build sent this — 'dev' or 'public'.
+ *
+ * Reloading the unpacked dev extension wipes chrome.storage.local, which mints
+ * a fresh pfAnonId, which PostHog counts as a brand-new person. Ten reloads
+ * looked like ten users (all of them Ethan). Tagging every event lets the real
+ * numbers be separated from testing without guessing at UUIDs.
+ *
+ * The dev manifest is deliberately named ">=PlayingFild (dev)" and the
+ * packager strips that suffix for the public build, so the name IS the signal.
+ * Set PostHog's "internal and test users" filter to build_channel = dev.
+ */
+function getBuildChannel() {
+  try {
+    const name = chrome.runtime.getManifest?.().name || '';
+    return /\(dev\)\s*$/i.test(name.trim()) ? 'dev' : 'public';
+  } catch (_) { return 'public'; }
 }
 
 // One-time install ID: UUID v4, kept only in chrome.storage.local. Never
@@ -221,10 +272,24 @@ export async function capture(event, props = {}) {
   if (!PF_ANALYTICS_ENDPOINT || !PF_ANALYTICS_API_KEY) return;
   if (await isOptedOut()) return;
   if (await pfIsBotSuspect()) return; // shadow-ban: bots never enter the dataset
+  // Sign-in gate. Was: NOTHING leaves the device before sign-in (2026-07
+  // v56/v57), which cost us the entire onboarding funnel because the tutorial
+  // finishes before anyone signs in. Now: onboarding-funnel events in
+  // PRE_SIGNIN_EVENTS may go out signed-out; everything else still waits for
+  // a session. Still fails closed on a storage error.
+  if (!PRE_SIGNIN_EVENTS.has(event)) {
+    try {
+      const { pfSession } = await chrome.storage.local.get('pfSession');
+      if (!pfSession?.access_token) return;
+    } catch (_) { return; /* fail closed */ }
+  }
   const distinct_id = await getAnonId();
   const properties = {
     ...sanitizeProps(event, props),
-    ext_version: (chrome.runtime.getManifest?.().version) || 'unknown'
+    ext_version: (chrome.runtime.getManifest?.().version) || 'unknown',
+    // Added AFTER sanitizeProps, like ext_version — it is ours, not caller
+    // input, so it must not be subject to the per-event allowlist.
+    build_channel: getBuildChannel()
   };
   const entry = {
     event,
@@ -245,36 +310,23 @@ export async function capture(event, props = {}) {
 }
 
 /**
- * Link the anonymous install ID to a known user ID.
- * Sends a PostHog $identify event so that all prior anonymous events from
- * this install are merged with the authenticated user's profile.
- * @param {string} userId  The user's stable Supabase UUID (not email or name).
+ * v83 (user spec: "remove my uuid from the post hog thing").
+ *
+ * DISABLED. This used to send a PostHog $identify aliasing the random install
+ * UUID to the user's Supabase account UUID, which meant every event became
+ * joinable to a real account — directly contradicting the promise at the top
+ * of this file ("no user IDs ... the ID never joins to email / auth / anything
+ * else"). Analytics now stay pseudonymous: the only ID that ever leaves the
+ * device is the random pfAnonId.
+ *
+ * Kept as a no-op export so the three call sites (signup.js x2, stats.js)
+ * need no edits and re-enabling is a deliberate act, not an accident.
+ *
+ * NOTE: this stops NEW aliases. UUIDs already sent are still in PostHog —
+ * delete those person records from the PostHog UI.
  */
 export async function identify(userId) {
-  if (!userId || typeof userId !== 'string') return;
-  if (!PF_ANALYTICS_ENDPOINT || !PF_ANALYTICS_API_KEY) return;
-  if (await isOptedOut()) return;
-  if (await pfIsBotSuspect()) return; // shadow-ban
-  const anonId = await getAnonId();
-  if (anonId === userId) return; // already identified as this user
-  const entry = {
-    event: '$identify',
-    distinct_id: userId,
-    properties: {
-      $anon_distinct_id: anonId,
-      ext_version: (chrome.runtime.getManifest?.().version) || 'unknown'
-    },
-    timestamp: new Date().toISOString()
-  };
-  const queue = await loadQueue();
-  queue.push(entry);
-  await saveQueue(queue);
-  if (queue.length >= BATCH_SIZE) {
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-    void flushNow();
-  } else {
-    scheduleFlush();
-  }
+  void userId;
 }
 
 /**

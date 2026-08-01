@@ -61,24 +61,16 @@
     html.pf-dash-booting body {
       overflow: hidden;
     }
-    /* FIRST RUN (?firstrun=true → html.tutorial-preload): the very first
-       frame must be BLACK, matching the tutorial overlay underneath — the
-       light loader card read as a "flash of the dashboard" (user report
-       2026-07). Loader contents hidden; pure dark cover until the overlay
-       takes over. */
-    html.tutorial-preload {
-      background: #050508;
-    }
-    html.tutorial-preload #pfDashBootLoader {
-      background: #050508;
-    }
-    html.tutorial-preload #pfDashBootLoader > * {
-      visibility: hidden;
-    }
-    /* Body background too — any sliver around the loader stays dark. */
-    html.tutorial-preload body {
-      background: #050508 !important;
-    }
+    /* v83 (user spec "remove the black opening animation"): the first-run
+       black cover is gone. It used to paint html / body / the boot loader
+       #050508 and hide the loader's contents, so the very first frame was
+       pure dark until the tutorial overlay took over.
+       Trade-off it was solving (user report 2026-07): without it the light
+       loader card is briefly visible before the overlay, which read as a
+       "flash of the dashboard". If that flash comes back and bothers you,
+       this block is what to restore — the .tutorial-preload class is still
+       added and removed by stats.js exactly as before, it simply no longer
+       paints anything. */
   </style>
   <link rel="stylesheet" href="shared/brand-tokens.css">
   <link rel="stylesheet" href="themes/fonts.css">
@@ -211,12 +203,45 @@
     #dashboardSignInBtn:hover {
       background: var(--pf-purple-700, #4A3D85);
     }
+    /* v83 (user spec): Sign In and "Test for 30 min" SWAPPED their looks.
+       Sign In is now the outlined/white one and the 30-min test carries the
+       filled purple. Only the skin moved — the IDs, the DOM order and every
+       JS binding are untouched. */
     #tutorSignIn {
+      display: none;
+      background: transparent;
+      color: var(--pf-purple-600, #5B4B9F);
+      border: 2px solid var(--pf-purple-300, #C4B5E0) !important;
+    }
+    #tutorSignIn:hover {
+      background: var(--pf-purple-100, #F0EBF8);
+    }
+    #tutorTrialBtn {
       display: none;
       background: var(--pf-purple-600, #5B4B9F);
       color: white;
     }
-    #tutorSignIn:hover {
+    #tutorTrialBtn:hover {
+      background: var(--pf-purple-700, #4A3D85);
+    }
+    /* v83 (user spec): bigger. This is the only place the trial's terms are
+       stated — that classification is local, and that they have to label
+       sites themselves — so it should not read as small print. */
+    #tutorTrialNotice {
+      margin-top: 14px;
+      font-size: 1.12em;
+      line-height: 1.6;
+      text-align: center;
+    }
+    #tutorTrialNotice[hidden] { display: none; }
+    /* v59: Start button lives in the btn-group beside Test for 30 min,
+       hidden until Test is clicked. Filled purple = the primary action. */
+    #tutorTrialConfirm {
+      display: none;
+      background: var(--pf-purple-600, #5B4B9F);
+      color: #fff;
+    }
+    #tutorTrialConfirm:hover {
       background: var(--pf-purple-700, #4A3D85);
     }
     #headerSignOutBtn {
@@ -466,11 +491,28 @@
        extension is inert. The sign-in banner + header sign-in button
        stay clickable — everything else is grayed and unresponsive. */
     body.pf-signed-out-locked .content-box,
-    body.pf-signed-out-locked .tabs {
+    body.pf-signed-out-locked .tabs,
+    /* v84 (user report: "the casual tab thing doesn't seem to be grayed out
+       like everything else when signed out"). .pf-mode-tabs is a SIBLING of
+       .content-box, sitting above it in the markup, so neither selector above
+       ever reached it and the mode switcher stayed bright and clickable on an
+       otherwise dimmed dashboard. */
+    body.pf-signed-out-locked .pf-mode-tabs {
       opacity: 0.45;
       filter: grayscale(0.6);
       pointer-events: none;
       user-select: none;
+    }
+    /* v84: not-built-yet blocks. Greyed and inert, but still legible enough
+       to read as a promise rather than a fault. */
+    .pf-coming-soon {
+      opacity: 0.5;
+      filter: grayscale(1);
+      pointer-events: none;
+      user-select: none;
+    }
+    .pf-coming-soon .pf-profile-level-xp {
+      font-style: italic;
     }
     body.pf-signed-out-locked #pfSignInRequiredBanner {
       opacity: 1 !important;
@@ -803,6 +845,384 @@
       overflow: auto;
     }
     .pf-profile-panel.active { display: block; }
+
+    /* v82 settings-drawer layout. The profile window keeps its anchor and
+       opens in place, but the category strip moves from a horizontal row
+       under the header to a rail down the LEFT side, so it reads as a
+       proper settings window (User / Other Windows / Wrapped / Settings
+       as a sidebar, content to the right).
+
+       Implemented with grid rather than restructuring the markup: the
+       header spans both columns, the rail takes column 1, and all four
+       .pf-profile-panel siblings are placed in the same cell in column 2.
+       Only .active is displayed, exactly as before, so the existing tab
+       switching JS needs no changes at all. */
+    .pf-profile-window {
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      width: min(940px, 96vw);
+    }
+    .pf-profile-window > .pf-profile-header {
+      grid-column: 1 / -1;
+      grid-row: 1;
+    }
+    .pf-profile-window > .pf-profile-tabs {
+      grid-column: 1;
+      grid-row: 2;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+      padding: 12px 10px;
+      border-bottom: none;
+      border-right: 1px solid #eee;
+      overflow-y: auto;
+    }
+    .pf-profile-window > .pf-profile-tabs > .pf-profile-tab {
+      flex: 0 0 auto;
+      text-align: left;
+      padding: 11px 14px;
+      border-radius: 8px;
+    }
+    .pf-profile-window > .pf-profile-tabs > .pf-profile-tab.active,
+    .pf-profile-window > .pf-profile-tabs > .pf-profile-tab.active:hover,
+    .pf-profile-window > .pf-profile-tabs > .pf-profile-tab.active:focus-visible {
+      background: #fff;
+      box-shadow: none;
+      border-left: 3px solid var(--pf-purple-600, #5B4B9F);
+      padding-left: 11px;
+    }
+    .pf-profile-window > .pf-profile-panel {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    /* Narrow viewports: fall back to the original stacked layout so the
+       rail never squeezes the content column to nothing. */
+    @media (max-width: 720px) {
+      .pf-profile-window {
+        display: flex;
+        flex-direction: column;
+        width: min(780px, 96vw);
+      }
+      .pf-profile-window > .pf-profile-tabs {
+        flex-direction: row;
+        padding: 0;
+        border-right: none;
+        border-bottom: 1px solid #eee;
+      }
+      .pf-profile-window > .pf-profile-tabs > .pf-profile-tab {
+        flex: 1;
+        text-align: center;
+        border-radius: 0;
+      }
+      .pf-profile-window > .pf-profile-tabs > .pf-profile-tab.active {
+        border-left: none;
+        padding-left: 14px;
+        box-shadow: inset 0 -2px 0 var(--pf-purple-600, #5B4B9F);
+      }
+      /* v83: the rail is a horizontal row at this width, where a growing
+         spacer would shove every category off to the right. It only means
+         anything in the vertical layout. */
+      .pf-profile-window > .pf-profile-tabs > .pf-profile-rail-spacer {
+        display: none;
+      }
+    }
+
+    /* ── v82 side drawer ──────────────────────────────────────────────
+       The profile stops being a centred pop-up window and becomes a
+       full-height settings drawer docked to the LEFT edge, with the
+       category rail inside it.
+
+       Deliberately implemented as pure CSS over the existing modal
+       markup: openProfilePanel() / closeProfilePanel() still just toggle
+       [hidden] on #pfProfileModal and the .pf-profile-modal-open body
+       class, so none of the open/close, tab-switching or render JS
+       changes. The drawer simply *is* the modal, restyled and re-docked.
+
+       The backdrop is kept in the DOM (its click handler is the
+       click-outside-to-close behaviour) but made near-transparent, so it
+       reads as a drawer rather than a blocking dialog. */
+    .pf-profile-modal {
+      align-items: stretch;
+      justify-content: flex-start;
+      padding: 0;
+    }
+    .pf-profile-backdrop {
+      background: rgba(15, 23, 42, 0.18);
+      backdrop-filter: none;
+    }
+    .pf-profile-modal .pf-profile-window {
+      width: min(560px, 94vw);
+      max-height: none;
+      height: 100vh;
+      border-radius: 0;
+      border-top: none;
+      border-bottom: none;
+      border-left: none;
+      box-shadow: 18px 0 48px rgba(15, 23, 42, 0.22);
+      grid-template-columns: 194px minmax(0, 1fr);
+      animation: pfDrawerIn 0.18s ease-out;
+    }
+    @keyframes pfDrawerIn {
+      from { transform: translateX(-14px); opacity: 0.6; }
+      to   { transform: translateX(0);     opacity: 1; }
+    }
+    /* Rail fills the drawer height and the category list sits at the top
+       of it rather than being vertically stretched. */
+    .pf-profile-modal .pf-profile-window > .pf-profile-tabs {
+      justify-content: flex-start;
+      background: #faf9fd;
+    }
+    @media (max-width: 720px) {
+      .pf-profile-modal .pf-profile-window {
+        width: 100vw;
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    /* ── v83 Advanced Settings full-width mode ───────────────────────────
+       The advanced controls (earn/spend host chips, the HH:MM:SS spinners,
+       the tab-shield preview) were built for the old full-page column and
+       do not survive being squeezed into the ~340px content column left
+       over next to the 194px rail — labels wrapped one word per line and
+       the earn/spend row clipped on the right.
+
+       So when the Advanced tab is open the rail is hidden and the drawer
+       widens. switchProfileTab() adds .pf-profile-adv-full to
+       #pfProfilePanel; #pfProfileAdvancedBackBtn is the route back. The
+       rail is display:none rather than width:0 so its buttons leave the
+       tab order entirely while hidden. */
+    .pf-profile-window.pf-profile-adv-full > .pf-profile-tabs {
+      display: none;
+    }
+    .pf-profile-modal .pf-profile-window.pf-profile-adv-full {
+      width: min(900px, 96vw);
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+    /* v83: nothing inside a drawer panel may push the panel wider than its
+       grid column. The settings cards were authored for the old full-page
+       column, so without this a long host chip or a wide flex row makes the
+       whole drawer scroll sideways ("advanced settings is sitting a little
+       bit out"). min-width:0 lets the grid item actually shrink; the flex
+       children need it too or they refuse to go below their content width. */
+    .pf-profile-window > .pf-profile-panel {
+      min-width: 0;
+      overflow-x: hidden;
+    }
+    .pf-profile-panel .pf-setting-demo-layout,
+    .pf-profile-panel .pf-setting-demo-main,
+    .pf-profile-panel .pf-ranking-mode-layout,
+    .pf-profile-panel .pf-ranking-mode-main {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    /* v83: the data-mode cards stack inside the drawer. They already had a
+       stacking rule, but it hangs off `@media (max-width: 640px)` — a
+       VIEWPORT query, which never fires here because the window is wide
+       even though the panel holding the cards is only ~340px. Three
+       side-by-side cards in 340px is what crushed the labels into one word
+       per line. Container width is what matters, so scope it to the drawer
+       instead of the viewport. */
+    .pf-profile-modal .pf-data-mode-cards {
+      flex-direction: column;
+    }
+    .pf-profile-modal .pf-data-mode-cards .pf-data-mode-card {
+      flex: 0 0 auto;
+      margin-bottom: 0;
+    }
+    .pf-profile-modal .pf-data-mode-cards .pf-data-mode-card h4 {
+      font-size: 0.95em;
+    }
+    .pf-profile-modal .pf-data-mode-cards .pf-mode-desc {
+      font-size: 0.84em;
+    }
+
+    .pf-profile-adv-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 16px;
+      padding: 7px 13px 7px 10px;
+      border: 1px solid #d8dce6;
+      border-radius: 8px;
+      background: #faf9fd;
+      color: #4a4a55;
+      font-size: 0.92em;
+      font-weight: 600;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .pf-profile-adv-back:hover,
+    .pf-profile-adv-back:focus-visible {
+      background: #f1eefb;
+      border-color: var(--pf-purple-600, #5B4B9F);
+      color: var(--pf-purple-600, #5B4B9F);
+    }
+    .pf-profile-adv-back > span {
+      font-size: 1.25em;
+      line-height: 1;
+    }
+    body.pf-dark:not(.theme-notebook) .pf-profile-adv-back {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.16);
+      color: #d6cdf2;
+    }
+
+    /* ── v84: make Advanced Settings look like it belongs in the drawer ─────
+       User report: "make the advanced settings actually look like they fit in
+       there by fixing all their backgrounds".
+
+       These cards were authored for the old full-page Window Settings flow,
+       where a neutral grey card on a white page was fine. Dropped into the
+       drawer they read as foreign: #f8f8f8 fills and #ccc borders against the
+       drawer's purple-tinted palette, and — worse — three nested surfaces at
+       once. #advancedFeaturesBlock (grey) wrapped .timer-card (white) wrapped
+       a rgba(255,255,255,0.7) box that resolves to plain white on white. Two
+       of those three borders carried no information.
+
+       Fix: ONE surface per card. The outer wrapper becomes a plain grouping
+       element (transparent, no border, no padding) so the card inside it is
+       the only box the eye sees, and every card shares the same fill, hairline
+       and radius as the rest of the drawer.
+
+       !important throughout because every one of these is an inline style
+       attribute in the markup. Rewriting ~40 inline styles by hand would touch
+       far more lines and risk the tutorial's positioning maths, which reads
+       some of these elements' boxes. */
+    #pfProfileTabAdvanced #advancedFeaturesBlock {
+      margin-bottom: 16px !important;
+      padding: 0 !important;
+      border: none !important;
+      background: transparent !important;
+      border-radius: 0 !important;
+    }
+    /* v84 (user spec): the "Advanced Settings" heading is gone. The drawer
+       rail already said Advanced Settings to get here, and the panel is the
+       only thing on screen, so the title was labelling itself. */
+    #pfProfileTabAdvanced #advancedFeaturesBlock > .pf-setting-heading {
+      display: none !important;
+    }
+    /* And the outer tinted panel goes with it. #advancedLimitsSection carries
+       background #f0f4f8 + a border + padding from the old full-page layout,
+       which inside the drawer read as a box drawn around the other boxes. The
+       cards below are the only surfaces now. */
+    #pfProfileTabAdvanced #advancedLimitsSection {
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      margin-top: 0 !important;
+    }
+    #pfProfileTabAdvanced #advancedEarnSpendBlock,
+    #pfProfileTabAdvanced #tabLifeContainer,
+    #pfProfileTabAdvanced #bankedTimeContainer,
+    #pfProfileTabAdvanced #pauseContainer,
+    /* Session reset is NOT destructive, whatever its id suggests. The visible
+       control is "First opened windows", a startup-tabs preference, and the
+       inherited #fff5f5 + #feb2b2 styling made it look like a danger zone
+       (user report 2026-07 v84: "first opened windows is like a tint red").
+       It gets the same neutral card as everything else. */
+    #pfProfileTabAdvanced #sessionResetContainer,
+    #pfProfileTabAdvanced #advancedOptionsRow {
+      margin-bottom: 16px !important;
+      padding: 16px !important;
+      border: 1px solid #e6e2f2 !important;
+      border-radius: 12px !important;
+      background: #faf9fd !important;
+      box-shadow: none !important;
+    }
+    /* Inner boxes: these sat on rgba(255,255,255,0.7), which over the old grey
+       card was a subtle lift and over the new one is invisible. Solid white
+       against the tinted card gives them back their edge. */
+    #pfProfileTabAdvanced [style*="rgba(255,255,255,0.7)"] {
+      background: #fff !important;
+      border: 1px solid #e6e2f2 !important;
+      border-radius: 10px !important;
+    }
+    /* Inputs and selects picked up the page's default chrome, which is a
+       harder grey than anything else in the drawer. */
+    #pfProfileTabAdvanced select,
+    #pfProfileTabAdvanced input[type="number"],
+    #pfProfileTabAdvanced input[type="text"]:not(.timer-hms-h):not(.timer-hms-m):not(.timer-hms-s) {
+      border: 1px solid #d8d0f0 !important;
+      border-radius: 8px !important;
+      background: #fff !important;
+      padding: 6px 8px !important;
+    }
+    /* The green "Break available" badge is the one saturated element left.
+       Softened to sit with the purple rather than shout over it. */
+    #pfProfileTabAdvanced #modeBSpendAvailableRow {
+      background: #eef7ef !important;
+      border: 1px solid #cfe6d1 !important;
+    }
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #advancedEarnSpendBlock,
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #tabLifeContainer,
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #bankedTimeContainer,
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #pauseContainer,
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #advancedOptionsRow {
+      background: rgba(255, 255, 255, 0.05) !important;
+      border-color: rgba(255, 255, 255, 0.14) !important;
+    }
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced #sessionResetContainer {
+      background: rgba(255, 255, 255, 0.05) !important;
+      border-color: rgba(255, 255, 255, 0.14) !important;
+    }
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced [style*="rgba(255,255,255,0.7)"],
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced select,
+    body.pf-dark:not(.theme-notebook) #pfProfileTabAdvanced input[type="number"] {
+      background: rgba(255, 255, 255, 0.07) !important;
+      border-color: rgba(255, 255, 255, 0.16) !important;
+      color: #e8e2f8 !important;
+    }
+
+    /* v83: display name + email block, now the first thing in the User
+       tab instead of sitting in the drawer header. */
+    .pf-profile-identity {
+      margin: -4px 0 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #eee;
+    }
+    body.pf-dark:not(.theme-notebook) .pf-profile-identity {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+    .pf-profile-header-title {
+      font-weight: 700;
+      font-size: 1.15em;
+      color: #222;
+      align-self: center;
+    }
+    /* The header used to hold two stacked lines (name + email); now it is a
+       single title, so it no longer needs the taller padding. */
+    .pf-profile-modal .pf-profile-window > .pf-profile-header {
+      padding: 14px 18px 13px;
+    }
+    .pf-profile-modal .pf-profile-window > .pf-profile-header > .pf-profile-header-top {
+      align-items: center;
+      margin-bottom: 0;
+    }
+    /* No dark-mode rule for the title: the existing
+       `body.pf-dark .pf-profile-window span` rule already recolours it with
+       !important and would win over anything set here. */
+
+    /* Chevron on the profile button so it reads as an openable menu.
+       Rotates when the panel is open, driven off the existing
+       aria-expanded attribute the toggle already maintains. */
+    #pfProfileChevron {
+      display: inline-block;
+      /* v84 (user spec): bigger. 0.72em rendered at roughly 10px next to the
+         avatar, which is small enough that the "this opens a menu" cue was
+         easy to miss. Darkened a shade too, since scaling a very light glyph
+         up mostly just makes the lightness more obvious. */
+      margin-left: 5px;
+      font-size: 1.7em;
+      line-height: 1;
+      color: #4a4459;
+      transition: transform 0.18s ease;
+    }
+    #pfProfileBtn[aria-expanded="true"] #pfProfileChevron {
+      transform: rotate(180deg);
+    }
     .pf-profile-panel p {
       margin: 0 0 12px;
       font-size: 0.98em;
@@ -1523,39 +1943,8 @@
       opacity: 0.65;
       cursor: not-allowed;
     }
-    #tabLimitLockBtn {
-      padding: 4px 8px;
-      min-width: 34px;
-      height: 30px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      border: 1px solid #cfd4da;
-      font-size: 1.1em;
-      line-height: 1;
-      font-weight: 700;
-      background: #eef1f4;
-      color: #374151;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
-      transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.12s ease;
-    }
-    #tabLimitLockBtn:hover {
-      transform: translateY(-1px);
-    }
-    #tabLimitLockBtn.is-locked {
-      background: rgba(78, 154, 106, 0.12);
-      border-color: #c5dfc9;
-      color: #3d7a55;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
-    }
-    #tabLimitLockBtn.is-unlocked {
-      background: rgba(180, 86, 106, 0.12);
-      border-color: #e8c4c8;
-      color: #a85460;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
-    }
-    #tabLimitLockBtn:focus-visible,
+    /* v83: #tabLimitLockBtn base / :hover / .is-locked / .is-unlocked rules
+       removed with the button. */
     #confirmTabLimit:focus-visible,
     .pf-tablimit-skip-confirm-actions button:focus-visible {
       outline-offset: 0;
@@ -1573,8 +1962,7 @@
     #editNameBtn:hover {
       background: rgba(91, 75, 159, 0.08) !important;
     }
-    #editNameBtn .pf-control-icon,
-    #tabLimitLockBtn .pf-control-icon {
+    #editNameBtn .pf-control-icon {
       display: inline-block !important;
     }
     .nb-sketch-icon[data-icon="pencil"] {
@@ -1765,6 +2153,106 @@
     .timer-hms-disabled input {
       opacity: 0.85;
     }
+
+    /* ── v83 collapsible timer card (user spec) ───────────────────────────
+       The Work Timer shows only its title until clicked. Styling mirrors
+       #unprodReminderToggle, the dropdown that already lives inside that
+       card, so the two read as the same control. */
+    .pf-card-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pf-card-toggle {
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      margin: 0;
+      padding: 2px 0;
+      border: none;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pf-card-toggle-chev {
+      flex: 0 0 auto;
+      font-size: 0.8em;
+      line-height: 1;
+      color: #5B4B9F;
+      transition: transform 0.15s ease;
+    }
+    .pf-card-toggle[aria-expanded="true"] .pf-card-toggle-chev {
+      transform: rotate(180deg);
+    }
+    /* Collapsed, the card is just a title bar — drop the body's share of the
+       padding so it does not read as an empty box. */
+    .pf-card-collapsible:has(.pf-card-toggle[aria-expanded="false"]) {
+      padding-bottom: 12px;
+    }
+    /* The toggle is a heading that happens to be a <button>, so it must not
+       inherit button chrome from either theme.
+       Default theme: the global `button { background: purple }` +
+       `button:hover { background: purple-700 }` rules would paint it solid.
+       Same !important override the .tutor-data-mode-alt-link uses. */
+    .pf-card-toggle,
+    .pf-card-toggle:hover,
+    .pf-card-toggle:focus,
+    .pf-card-toggle:active {
+      background: none !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      color: inherit !important;
+    }
+    /* Notebook theme draws every .content-box button as a pencil-outline
+       pill (2px border + 10px radius + paper fill) — that is the ring the
+       user saw around "Work Timer". Higher specificity than the theme rule,
+       so it wins regardless of stylesheet order. */
+    body.theme-notebook .content-box .pf-card-toggle,
+    body.theme-notebook .content-box .pf-card-toggle:hover:not(:disabled),
+    body.theme-notebook .content-box .pf-card-toggle:active:not(:disabled) {
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      transform: none !important;
+    }
+    /* Whole collapsed card is the hit target (user spec: "click anywhere on
+       the work timer and it drops down"). */
+    .pf-card-collapsible:has(.pf-card-toggle[aria-expanded="false"]) {
+      cursor: pointer;
+    }
+
+    /* ── v83 double-click to edit (user spec) ─────────────────────────────
+       Timers read as plain values, not form fields, until the user
+       double-clicks one. bindTimerHmsInputs owns .timer-hms-locked and the
+       matching `readonly` on each input, so the look and the actual
+       editability can never drift apart.
+
+       The hover state brings the underline back so the field still signals
+       "you can change this" — without it, double-click-to-edit is
+       invisible and nobody would ever find it. */
+    .timer-hms.timer-hms-locked {
+      cursor: default;
+    }
+    .timer-hms.timer-hms-locked input[type="text"] {
+      border-bottom-color: transparent;
+      cursor: default;
+      user-select: none;
+    }
+    .timer-hms.timer-hms-locked:hover input[type="text"] {
+      border-bottom-color: #ddd;
+    }
+    /* Never fight the tutorial's own locked styling — while the tutorial
+       has a field disabled it must not look hoverable-editable. */
+    .timer-hms.timer-hms-tutorial-locked:hover input[type="text"] {
+      border-bottom-color: transparent;
+    }
     #timerMutualExclusivityHint {
       font-size: 0.8em;
       color: #888;
@@ -1776,7 +2264,6 @@
       display: none;
     }
     body:not(.theme-notebook) #editNameBtn .nb-sketch-icon,
-    body:not(.theme-notebook) #tabLimitLockBtn .nb-sketch-icon,
     body:not(.theme-notebook) .enforcer-help-text .nb-sketch-icon {
       display: inline-block !important;
     }
@@ -2133,6 +2620,32 @@
       border: 1px solid #ccc;
       border-radius: 8px;
       margin-bottom: 12px;
+    }
+    /* v83: deep-link focus ring. Applied by pfApplyRequestedFocus when the
+       dashboard is opened with ?focus=<id> — currently only from the
+       first-time "Tabs reordered" notice's opt-out link, which needs to land
+       the user ON the Reorder Tabs toggle rather than just on the dashboard. */
+    .pf-focus-flash {
+      animation: pfFocusFlash 1.1s ease-in-out 3;
+      border-radius: 10px;
+    }
+    @keyframes pfFocusFlash {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(91, 75, 159, 0); }
+      50% { box-shadow: 0 0 0 4px rgba(91, 75, 159, 0.35), 0 0 18px rgba(91, 75, 159, 0.45); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pf-focus-flash {
+        animation: none;
+        box-shadow: 0 0 0 3px rgba(91, 75, 159, 0.45);
+      }
+    }
+    /* v83: hairline section break under the automation toggles. */
+    .pf-section-divider {
+      border-bottom: 1px solid #E2E8F0;
+      margin: 4px 0 16px;
+    }
+    body.pf-dark:not(.theme-notebook) .pf-section-divider {
+      border-bottom-color: rgba(255, 255, 255, 0.10);
     }
     #autoCloseDashboardWrap {
       margin-top: 0;
@@ -3514,6 +4027,20 @@
   transition: all 0.3s ease;
 }
 
+    /* v69: step-13 entry veil — above the dashboard + backdrop hole
+       (10000), below the tutor header (10022) / content wrapper (10020). */
+    #pfStep13Veil {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 10010;
+      opacity: 1;
+      transition: opacity 240ms ease;
+      pointer-events: none;
+    }
+    #pfStep13Veil.pf-veil-fading { opacity: 0; }
+    #pfStep13Veil[hidden] { display: none; }
+
     #tutorialContentWrapper {
       position: fixed; inset: 0;
       display: none;
@@ -3822,6 +4349,14 @@
     }
     .pf-skip-video-modal.is-visible {
       display: flex;
+    }
+    /* v84 (user spec): the 30-minute test notice must sit IN FRONT of the
+       skipped-tutorial video when both are up. They share the
+       .pf-skip-video-modal class and therefore the same z-index, so without
+       this the winner is whichever happens to be later in the DOM. The trial
+       is the one with a clock already running, so it wins deliberately. */
+    #pfTrialClassifyModal {
+      z-index: 30010;
     }
     .pf-skip-video-backdrop {
       position: absolute;
@@ -4668,6 +5203,41 @@
     #reorderTabsToggle:checked + #reorderTabsSlider:before {
       transform: translateX(22px);
     }
+    /* v83: Group Similar Tabs — same switch, third row of the automation
+       card. Duplicated rather than refactored into a shared class because
+       the other two are id-scoped and rewriting them risks the two toggles
+       users already rely on. */
+    #groupSimilarTabsSlider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #ccc;
+      border-radius: 26px;
+      transition: 0.3s;
+    }
+    #groupSimilarTabsSlider:before {
+      content: '';
+      position: absolute;
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    #groupSimilarTabsToggle:checked + #groupSimilarTabsSlider {
+      background: var(--pf-purple-600);
+    }
+    #groupSimilarTabsToggle:checked + #groupSimilarTabsSlider:before {
+      transform: translateX(22px);
+    }
+    #groupSimilarTabsToggle {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
     .toggle-wrapper {
       position: relative;
       display: inline-block;
@@ -4829,9 +5399,9 @@
       padding-bottom: 40px !important;
     }
 
-    /* Tutorial: keep name pencil + tab lock icons visible */
-    body.tutorial-active #editNameBtn .pf-control-icon,
-    body.tutorial-active #tabLimitLockBtn .pf-control-icon {
+    /* Tutorial: keep the name pencil icon visible.
+       v83: the tab-lock half of these selectors went with the button. */
+    body.tutorial-active #editNameBtn .pf-control-icon {
       display: inline-block !important;
       width: 22px;
       height: 22px;
@@ -4839,20 +5409,17 @@
       position: relative;
       z-index: 3;
     }
-    body.tutorial-active #editNameBtn,
-    body.tutorial-active #tabLimitLockBtn {
+    body.tutorial-active #editNameBtn {
       background: transparent !important;
     }
-    body.tutorial-active #editNameBtn:hover,
-    body.tutorial-active #tabLimitLockBtn:hover {
+    body.tutorial-active #editNameBtn:hover {
       background: rgba(91, 75, 159, 0.08) !important;
     }
 
     /* Tutorial: show sketch icons + keep name/tab-limit controls readable */
     body.tutorial-active #nameWrapper .nb-sketch-icon,
     body.tutorial-active #tabLimitWrapper .nb-sketch-icon,
-    body.tutorial-active #editNameBtn .nb-sketch-icon,
-    body.tutorial-active #tabLimitLockBtn .nb-sketch-icon {
+    body.tutorial-active #editNameBtn .nb-sketch-icon {
       display: inline-block !important;
       visibility: visible !important;
       opacity: 1 !important;
@@ -4892,14 +5459,6 @@
     body.tutorial-active #windowNameInput {
       font-size: 1.12em !important;
       min-width: 160px;
-    }
-    body.tutorial-active #tabLimitLockBtn {
-      min-width: 40px !important;
-      min-height: 36px !important;
-      display: inline-flex !important;
-      align-items: center;
-      justify-content: center;
-      overflow: visible;
     }
     body.tutorial-active .tutor-highlight #nameWrapper,
     body.tutorial-active .tutor-highlight-wide #nameWrapper,
@@ -6682,7 +7241,90 @@
       from { opacity: 0; transform: translateY(6px) scale(0.94); }
       to { opacity: 1; transform: translateY(0) scale(1); }
     }
-    body:not(.tutorial-step-pvu) .pf-tutor-callout { display: none !important; }
+    /* v84: the callouts now also show on the EXAMPLE WEEK, because the
+       tutorial step that used to set `tutorial-step-pvu` was deleted in v83
+       and this rule was silently hiding both bubbles ever since. JS adds
+       pf-pvu-sample to <body> while the sample chart is up. */
+    body:not(.tutorial-step-pvu):not(.pf-pvu-sample) .pf-tutor-callout {
+      display: none !important;
+    }
+    /* v84 (user spec): Casual / Research mode belongs to Window Settings and
+       disappears on the other main tabs. switchMainTab sets [hidden].
+       !important is REQUIRED, not defensive: the element carries an inline
+       `display: flex`, and inline styles beat a plain [hidden] rule every
+       time — the attribute would flip with no visible effect. */
+    .pf-mode-tabs[hidden] { display: none !important; }
+
+    /* Privacy-policy change notice (v84, user spec). */
+    .pf-privacy-notice {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 12px;
+      padding: 12px 16px;
+      border: 1px solid #d8d0f0;
+      border-left: 4px solid var(--pf-purple-600, #5B4B9F);
+      border-radius: 10px;
+      background: #f6f3fd;
+      color: #2b2440;
+      font-size: 0.92em;
+      line-height: 1.45;
+    }
+    /* [hidden] must beat the display:flex above, same trap as .pf-mode-tabs. */
+    .pf-privacy-notice[hidden] { display: none !important; }
+    .pf-privacy-notice-body { min-width: 0; flex: 1 1 320px; }
+    .pf-privacy-notice-body strong { display: block; margin-bottom: 2px; }
+    .pf-privacy-notice-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+    #pfPrivacyNoticeRead {
+      color: var(--pf-purple-600, #5B4B9F);
+      font-weight: 600;
+      text-decoration: underline;
+    }
+    #pfPrivacyNoticeDismiss,
+    #pfTrialExpiredSignUp {
+      padding: 7px 14px;
+      border: none;
+      border-radius: 8px;
+      background: var(--pf-purple-600, #5B4B9F);
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.95em;
+      cursor: pointer;
+    }
+    #pfTrialExpiredSignUp { /* inherits the dismiss button styling below */ }
+    .pf-notice-secondary {
+      padding: 7px 12px;
+      border: 1px solid #d8d0f0;
+      border-radius: 8px;
+      background: #fff;
+      color: #4A3D85;
+      font-weight: 600;
+      font-size: 0.95em;
+      cursor: pointer;
+    }
+    /* Trial expiry is the more urgent of the two, so it gets the warmer
+       accent rather than the neutral purple hairline. */
+    .pf-trial-expired-notice {
+      border-left-color: #c9762f;
+      background: #fdf6ef;
+    }
+    body.pf-dark:not(.theme-notebook) .pf-trial-expired-notice {
+      background: rgba(255, 200, 140, 0.08);
+    }
+    /* Never let either notice land on top of an onboarding step. */
+    body.tutorial-active .pf-privacy-notice { display: none !important; }
+    body.pf-dark:not(.theme-notebook) .pf-privacy-notice {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.16);
+      color: #e8e2f8;
+    }
     /* Reorder Tabs cell + its divider are hidden during the entire
        tutorial (user report 2026-07 v49: "step 8 make it so that the
        Reorder Tabs toggle thing is not in the tutorial"). The tutorial
@@ -6874,24 +7516,22 @@
     <button id="pfProfileBtn" type="button" aria-expanded="false" aria-controls="pfProfilePanel" title="Profile">
       <span id="pfProfileAvatarInitial">G</span>
       <span id="pfProfileBtnName" hidden>Guest</span>
+      <span id="pfProfileChevron" aria-hidden="true">&#9662;</span>
     </button>
   </div>
   <div id="pfProfileModal" class="pf-profile-modal" hidden aria-hidden="true">
     <div id="pfProfileBackdrop" class="pf-profile-backdrop"></div>
-    <div id="pfProfilePanel" class="pf-profile-window" role="dialog" aria-modal="true" aria-labelledby="pfProfileUserName">
+    <div id="pfProfilePanel" class="pf-profile-window" role="dialog" aria-modal="true" aria-labelledby="pfProfileHeaderTitle">
       <div class="pf-profile-header">
         <div class="pf-profile-header-top">
-          <div class="pf-profile-name-row">
-            <div class="pf-profile-name-edit">
-              <span id="pfProfileUserName">Guest</span>
-              <input type="text" id="pfProfileUserNameInput" maxlength="32" autocomplete="nickname" aria-label="Display name" hidden>
-              <button type="button" id="pfProfileEditNameBtn" class="pf-profile-edit-name-btn" aria-label="Edit display name" hidden><span class="pf-control-icon" data-icon="pencil" aria-hidden="true"></span></button>
-            </div>
-            <span class="pf-profile-user-email-row" style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span id="pfProfileUserEmail" class="pf-profile-user-email" hidden></span>
-              <span id="pfProfileSignedInStatus" class="pf-profile-signed-in-status" hidden style="display:none !important;">Signed in</span>
-            </span>
-          </div>
+          <!-- v83 (user spec): the display name + email moved OUT of this
+               header and DOWN into the User tab, where they belong with the
+               rest of the account UI. The header keeps only a static title
+               and the close button, so it reads as a settings drawer rather
+               than an account pop-up. The dialog's accessible name now comes
+               from this title, because the name span it used to point at now
+               lives inside a panel that is hidden on four of the five tabs. -->
+          <span id="pfProfileHeaderTitle" class="pf-profile-header-title">Settings</span>
           <button type="button" id="pfProfileCloseBtn" class="pf-profile-close-btn" aria-label="Close profile">&times;</button>
         </div>
         <!-- Level block + "More to come soon" moved DOWN into the User
@@ -6899,14 +7539,36 @@
              XP/level UI reads as user-scoped rather than global chrome. -->
       </div>
       <div class="pf-profile-tabs">
+        <!-- v83 rail layout (user spec 2026-07-30): two groups. User and
+             Advanced Settings sit together at the top, then a flexible
+             spacer pushes Wrapped Notifications / Other Windows / User
+             Settings down to the foot of the drawer, just above Sign Out.
+             Reading order top to bottom: User, Advanced Settings, gap,
+             Wrapped Notifications, Other Windows, User Settings, Sign Out.
+             Order is markup-only — switchProfileTab keys off
+             data-profile-tab, so nothing moves with it. -->
         <button type="button" class="pf-profile-tab active" data-profile-tab="user">User</button>
-        <button type="button" class="pf-profile-tab" data-profile-tab="windows">Other Windows</button>
+        <button type="button" class="pf-profile-tab" data-profile-tab="advanced">Advanced Settings</button>
+        <!-- Grows to fill the rail, so the group below is bottom-anchored.
+             min-height keeps a visible gap even on a short viewport where
+             there is no slack left to distribute. -->
+        <div class="pf-profile-rail-spacer" style="flex: 1 1 auto; min-height: 28px;"></div>
         <button type="button" class="pf-profile-tab" data-profile-tab="wrapped">Wrapped Notifications</button>
+        <button type="button" class="pf-profile-tab" data-profile-tab="windows">Other Windows</button>
         <button type="button" class="pf-profile-tab" data-profile-tab="settings">User Settings</button>
+        <!-- v82: sign in / sign out pinned to the bottom of the rail. -->
+        <div id="pfProfileAuthRow" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button id="dashboardSignInBtn" type="button" hidden><span class="nb-sketch-icon" data-icon="person" aria-hidden="true"></span>Sign In</button>
+          <button id="headerSignOutBtn" type="button" hidden><span class="nb-sketch-icon" data-icon="person" aria-hidden="true"></span>Sign Out</button>
+        </div>
       </div>
       <div id="pfProfileTabWrapped" class="pf-profile-panel">
+        <!-- v83 (user spec): the "how it behaves" half of this intro moved
+             BELOW the three toggles. The lead line is the instruction, the
+             explanation is a footnote — putting both above pushed the
+             actual controls down the panel. -->
         <p style="font-size: 0.95em; color: #555; margin: 0 0 14px; line-height: 1.5;">
-          Choose which Wrapped notifications you'd like from &gt;=PlayingFild. Each one pops up in your system tray when a fresh recap is ready. Click it to jump straight to the banner.
+          Choose which Wrapped notifications you'd like from &gt;=PlayingFild.
         </p>
         <label class="pf-wrapped-notif-card" for="pfWrappedNotifDaily">
           <span class="pf-wrapped-notif-icon" data-kind="daily" aria-hidden="true">📅</span>
@@ -6941,12 +7603,35 @@
             <span class="pf-wrapped-notif-slider"></span>
           </span>
         </label>
+        <p style="font-size: 0.9em; color: #777; margin: 14px 0 0; line-height: 1.5;">
+          Each one pops up in your system tray when a fresh recap is ready. Click it to jump straight to the banner.
+        </p>
       </div>
       <div id="pfProfileTabUser" class="pf-profile-panel active">
-        <div class="pf-profile-level-block" aria-label="Level progress" style="margin-bottom: 14px;">
+        <!-- v83: display name + email, relocated here from the drawer
+             header. IDs are unchanged so every existing reader
+             (renderProfilePanel, the inline name editor, the auth state
+             sync) keeps working untouched. -->
+        <div class="pf-profile-identity">
+          <div class="pf-profile-name-row">
+            <div class="pf-profile-name-edit">
+              <span id="pfProfileUserName">Guest</span>
+              <input type="text" id="pfProfileUserNameInput" maxlength="32" autocomplete="nickname" aria-label="Display name" hidden>
+              <button type="button" id="pfProfileEditNameBtn" class="pf-profile-edit-name-btn" aria-label="Edit display name" hidden><span class="pf-control-icon" data-icon="pencil" aria-hidden="true"></span></button>
+            </div>
+            <span class="pf-profile-user-email-row" style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span id="pfProfileUserEmail" class="pf-profile-user-email" hidden></span>
+              <span id="pfProfileSignedInStatus" class="pf-profile-signed-in-status" hidden style="display:none !important;">Signed in</span>
+            </span>
+          </div>
+        </div>
+        <!-- v84 (user spec): levels are not built. Greyed out and labelled so
+             it reads as a planned feature rather than a broken counter that
+             never moves off Level 1. -->
+        <div class="pf-profile-level-block pf-coming-soon" aria-label="Level progress" style="margin-bottom: 14px;">
           <div class="pf-profile-level-row">
             <span class="pf-profile-level-label">Level 1</span>
-            <span class="pf-profile-level-xp">0 / 100 XP</span>
+            <span class="pf-profile-level-xp">Potentially coming soon</span>
           </div>
           <div class="pf-profile-level-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Level 1 progress">
             <div class="pf-profile-level-bar-fill"></div>
@@ -6965,10 +7650,6 @@
         </div>
         <p class="pf-profile-name-note" style="margin: 0 0 14px;">More to come soon</p>
         <p id="pfProfileUserSummary">Sign in to sync your profile and settings.</p>
-        <div id="pfProfileAuthRow" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-          <button id="dashboardSignInBtn" type="button" hidden><span class="nb-sketch-icon" data-icon="person" aria-hidden="true"></span>Sign In</button>
-          <button id="headerSignOutBtn" type="button" hidden><span class="nb-sketch-icon" data-icon="person" aria-hidden="true"></span>Sign Out</button>
-        </div>
       </div>
       <div id="pfProfileTabWindows" class="pf-profile-panel">
         <p style="font-size: 0.98em; color: #666; margin-bottom: 10px;">Other Chrome windows running >=PlayingFild rules. Rules on one window will not affect others.</p>
@@ -7175,6 +7856,341 @@
         </button>
         <span id="pfProfileUserTempId" class="pf-profile-temp-id" hidden style="display: block; margin-top: 16px; font-size: 0.8em; color: #999; word-break: break-all;"></span>
       </div>
+      <div id="pfProfileTabAdvanced" class="pf-profile-panel">
+        <!-- v82: Advanced Settings moved here out of the Window Settings
+             page flow. The enableLimits checkbox row and the section it
+             toggles move together so their relationship is preserved. -->
+        <!-- v83: this panel hides the category rail while it is open (see
+             .pf-profile-adv-full) because the advanced controls need the
+             full drawer width. That removes the only route back to the
+             other categories, so this button IS the way back. It must stay
+             for as long as the rail is hidden. -->
+        <button type="button" id="pfProfileAdvancedBackBtn" class="pf-profile-adv-back">
+          <span aria-hidden="true">&#8249;</span> All settings
+        </button>
+        <!-- v83 (user spec): the "Advanced Settings" CHECKBOX is gone. This
+             panel IS Advanced Settings now, so gating it behind a tickbox
+             inside itself was redundant. Two things must survive that:
+               1. #enableLimits stays in the DOM (hidden, aria-hidden,
+                  untabbable) because save/config/lock/tutorial code all read
+                  `enableLimits.checked` — same pattern as enableBankedTimeModeB.
+               2. #advancedOptionsRow stays as the host for the first-run lock
+                  countdown (pfSyncAdvancedSettingsLock appends #pfAdvUnlockNote
+                  to it). It is display:none while unlocked and only appears to
+                  explain the lock. -->
+        <div id="advancedOptionsRow" style="display: none; align-items: center; gap: 10px; margin-bottom: 20px; padding: 10px; background: #eee; border-radius: 8px;">
+          <input type="checkbox" id="enableLimits" class="nb-advanced-checkbox" style="display: none;" tabindex="-1" aria-hidden="true">
+        </div>
+
+        <div id="advancedLimitsSection" style="display: none;">
+          <div id="advancedFeaturesBlock" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc; background: #f8f8f8;">
+            <div class="pf-setting-heading" style="font-weight: bold; margin-bottom: 12px;">
+              <span class="nb-sketch-icon" data-icon="star" aria-hidden="true"></span>
+              <span>Advanced Settings</span>
+            </div>
+
+            <!-- (Study Break card moved out of Advanced Settings — it now
+                 lives directly below the Unproductive Tab Closer.) -->
+            <div id="advancedEarnSpendBlock" class="timer-card" style="margin-bottom: 0; background: #fff;">
+              <!-- pf-modeb-demo-layout: STACKED column (user spec 2026-07)
+                   so the vertical order is fixed forever: settings → the
+                   animated preview OVER → "Spend time available" UNDER.
+                   The old side-by-side flex reflowed at narrow widths and
+                   the badge/preview swapped places. -->
+              <div class="pf-setting-demo-layout pf-ranking-mode-layout pf-modeb-demo-layout">
+                <div class="pf-setting-demo-main pf-ranking-mode-main">
+              <!-- No longer a dropdown (per user spec 2026-07): the panel is
+                   always open, like the Study Break card. The chevron button
+                   is gone; stats.js bindAdvancedEarnSpendChevron /
+                   syncAdvancedEarnSpendPanelOpen no-op safely without it. -->
+              <!-- Checkbox moved up next to the heading per user spec
+                   2026-07 — matches the Study Break layout and removes the
+                   redundant "Enable advanced earn / spend" duplicate row. -->
+              <div class="pf-setting-heading pf-time-earned-heading" style="margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <!-- Checkbox HIDDEN (not removed) per user spec 2026-07:
+                     Start timer turns the feature on, Stop turns it off.
+                     The input stays in the DOM because every existing
+                     reader (save/config/lock/exclusivity flows) keys off
+                     enableBankedTimeModeB.checked — same pattern as the
+                     legacy bankedTimeContainer IDs. -->
+                <input type="checkbox" id="enableBankedTimeModeB" style="display: none;" tabindex="-1" aria-hidden="true">
+                <span><b>Advanced Earn / Spend</b></span>
+                <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="advancedEarnSpendHelpPanel" title="How advanced earn/spend works">?</button>
+              </div>
+              <div id="advancedEarnSpendHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                Earn time while you're on your source sites, spend it automatically on any unproductive site. Earned break time ticks down while you browse distractions. (This is to block out neutral sights that may get passed the filter)
+              </div>
+              <p style="margin: 0 0 12px 0; color: #555; font-size: 0.9em;">Banks time on source sites; spends it on unproductive sites.</p>
+              <div id="advancedEarnSpendPanel" style="display: block; margin-top: 10px;">
+                <!-- "Comma-separated hosts, e.g. source `youtube.com`"
+                     paragraph removed per user spec 2026-07: the example now
+                     lives as gray placeholder text INSIDE the input, and
+                     naturally disappears once the user types their first
+                     site (default placeholder behavior). -->
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                  <label style="font-size: 0.9em; font-weight: 600;">Source sites (earn time here):</label>
+                  <p id="modeBAiSourceNote" class="pf-modeb-ai-source-note" hidden role="note" style="font-size: 0.8em; color: #5B4B9F; margin: 0 0 6px 0; line-height: 1.35;">
+                  </p>
+                  <div class="pf-site-pill-field" id="bankSourceSitesField">
+                    <div class="pf-site-pill-list" id="bankSourceSitesPills"></div>
+                    <input type="text" class="pf-site-pill-input" id="bankSourceSitesInput" placeholder="youtube.com, twitter.com" autocomplete="off" spellcheck="false">
+                  </div>
+                </div>
+                <!-- Timer-config row: width hugs content (inline-flex +
+                     fit-content) instead of stretching across the panel —
+                     the previous full-width flex row left a wide empty gap
+                     after "Start timer". Per user report 2026-07. -->
+                <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+                  <!-- v83 (user spec): this box is now a COLUMN. Row 1 is the
+                       sentence ("Every HH:MM:SS on source, earn HH:MM:SS of spend
+                       time."), row 2 is Start timer + the Break available badge,
+                       centred under it. They used to be one long inline run, which
+                       is what pushed the badge off the edge of the drawer and left
+                       the controls hanging off the end of a sentence. -->
+                  <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); width: fit-content; max-width: 100%;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; max-width: 100%; white-space: nowrap;">
+                      <span>Every</span>
+                      <!-- v83 default (user spec): 30 min on source earns a
+                           10 min break, was 15/5. Only affects a first run —
+                           loadConfig overwrites these from the saved config
+                           for anyone who already has one. The fallback
+                           literals in stats.js were moved in step with it. -->
+                      <div class="timer-hms" data-sync-id="bankFocusTimeModeB" aria-label="Time on source per Mode B deposit">
+                        <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                        <span class="timer-hms-sep">:</span>
+                        <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="30" aria-label="Minutes">
+                        <span class="timer-hms-sep">:</span>
+                        <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                      </div>
+                      <input type="hidden" id="bankFocusTimeModeB" value="0:30:00">
+                      <span>on source, earn</span>
+                      <div class="timer-hms" data-sync-id="bankEarnedTimeModeB" aria-label="Spend time earned per Mode B deposit">
+                        <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                        <span class="timer-hms-sep">:</span>
+                        <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="10" aria-label="Minutes">
+                        <span class="timer-hms-sep">:</span>
+                        <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                      </div>
+                      <input type="hidden" id="bankEarnedTimeModeB" value="0:10:00">
+                      <span>of spend time.</span>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; max-width: 100%;">
+                      <!-- Pause/Resume restored per user spec 2026-07 v10.
+                           State machine matches Study Break:
+                             idle    → Start only
+                             running → Pause + Stop
+                             paused  → Resume + Stop
+                           Wire-up + state application in stats.js
+                           (applyModeBEarnButtonState). -->
+                      <button type="button" id="modeBStartEarnBtn" class="pf-timer-btn pf-timer-btn--start">Start timer</button>
+                      <button type="button" id="modeBStopEarnBtn" class="pf-timer-btn pf-timer-btn--stop" hidden>Stop timer</button>
+                      <!-- Spend time available badge. Was inline at the tail of
+                           the timer sentence (2026-07 v9); moved onto this
+                           centred control row in v83 because at drawer width
+                           the sentence plus button plus badge ran off the
+                           right-hand edge. -->
+                      <div id="modeBSpendAvailableRow" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3;">
+                        <span style="font-weight: bold; color: #2d5a2d;">Break available:</span>
+                        <span id="modeBSpendAvailableDisplay" style="font-family: monospace; font-size: 1.05em; font-weight: bold; color: #28a745;">0m</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <!-- v83 (user spec "remove all previews"): the setting preview mount removed. -->
+                <!-- Break countdown panel (TIME + source pills) REMOVED per
+                     user spec 2026-07: the dashboard shows NO break
+                     indication beyond the timer button reading "Stop timer".
+                     The bottom-right floating pill carries the countdown.
+                     This row also held a DUPLICATE #modeBSpendAvailableDisplay
+                     (same id as the inline badge in the timer row) — gone
+                     with it. -->
+              </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="tabLifeContainer" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc; background: #f8f8f8;">
+            <div class="pf-setting-heading" style="font-weight: bold; margin-bottom: 4px;">
+              <span>Max Tab Life (Individual)</span>
+              <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="tabLifeHelpPanel" title="What this closes">?</button>
+            </div>
+            <div id="tabLifeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+              Closes individual tabs that stay open too long. Does not reset ranking scores or your whole session.
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+              <label for="tabLifeLimit" style="font-size: 0.9em;">Close tabs open longer than:</label>
+              <select id="tabLifeLimit" style="width: 140px; padding: 5px;">
+                <option value="">Off</option>
+                <option value="5m">5 Minutes</option>
+                <option value="10m">10 Minutes</option>
+                <option value="30m">30 Minutes</option>
+                <option value="1h">1 Hour</option>
+                <option value="12h">12 Hours</option>
+                <option value="24h">24 Hours</option>
+                <option value="2d">2 Days</option>
+                <option value="1w">1 Week</option>
+              </select>
+            </div>
+            <p id="tabLifeResearchNote" style="font-size: 0.92em; color: #555; margin: 0; line-height: 1.5; max-width: 560px;">
+              <strong>Study tip:</strong> Research shows a tab's return rate drops below 60% after just 5 minutes in the background.
+            </p>
+          </div>
+
+          <!-- legacy — UI moved to advancedEarnSpendBlock -->
+          <div id="bankedTimeContainer" hidden class="inactive" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc;">
+            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
+              <div class="pf-setting-demo-main pf-ranking-mode-main">
+            <div style="display: flex; align-items: flex-start; gap: 10px;">
+              <input type="checkbox" id="enableBankedTime" style="margin-top: 3px;">
+              <div>
+                <div class="pf-setting-heading">
+                  <label for="enableBankedTime"><span class="nb-sketch-icon" data-icon="target" aria-hidden="true"></span><b>Focused Time Banked</b></label>
+                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="bankedTimeHelpPanel" title="How banked time works">?</button>
+                </div>
+                <div id="bankedTimeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                  Banks break time while the Work/Study timer runs. Does not restrict fun sites or run a site countdown. Only tabs/windows with >=PlayingFild installed can earn banked time.
+                </div>
+              </div>
+            </div>
+            <div id="bankedTimeSection" style="display:none; margin-top: 10px; padding-left: 25px;">
+              <p style="font-size: 0.85em; color: #666; margin: 0 0 12px 0; line-height: 1.45; max-width: 560px;">
+                Set your earn rate below. Time banks while the Work/Study timer runs. Click <b>Use</b> to load it onto the Break timer.
+              </p>
+              <div style="display: flex; align-items: center; gap: 8px; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); flex-wrap: wrap;">
+                <span>Every</span>
+                <div class="timer-hms" data-sync-id="bankFocusTime" aria-label="Productive time per bank deposit">
+                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="15" aria-label="Minutes">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                </div>
+                <input type="hidden" id="bankFocusTime" value="0:15:00">
+                <span>productive timer</span>
+                <div class="timer-hms" data-sync-id="bankEarnedTime" aria-label="Break time earned per deposit">
+                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="5" aria-label="Minutes">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                </div>
+                <input type="hidden" id="bankEarnedTime" value="0:05:00">
+                <span>break.</span>
+              </div>
+              <div style="margin-top: 15px;">
+                <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3; flex-wrap: wrap;">
+                  <span style="font-weight: bold; color: #2d5a2d;">Time banked:</span>
+                  <span id="bankedTimeDisplay" style="font-size: 1.2em; font-weight: bold; color: #28a745;">0m</span>
+                  <button id="useBankedTime" class="btn" style="background: #28a745; padding: 5px 10px; font-size: 0.8em;">Use</button>
+                </div>
+                <div id="bankedTimeStatus" style="margin-top: 8px; font-size: 0.85em; font-weight: 600; min-height: 1.2em;"></div>
+                <div id="focusedBankProgress" style="margin-top: 6px; font-size: 0.8em; color: #666;">Progress toward next deposit: none</div>
+              </div>
+
+            </div>
+              </div>
+              <!-- v83 (user spec "remove all previews"): the setting preview mount removed. -->
+            </div>
+          </div>
+
+          <div id="pauseContainer" class="inactive" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc;">
+            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
+              <div class="pf-setting-demo-main pf-ranking-mode-main">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: flex-start; gap: 10px;">
+                <input type="checkbox" id="enablePause" style="margin-top: 3px;">
+                <div>
+                  <div class="pf-setting-heading">
+                    <label for="enablePause"><span class="nb-sketch-icon" data-icon="shield-sm" aria-hidden="true"></span><b>Keep a tab in place</b></label>
+                    <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="pauseHelpPanel" title="How tab shield works">?</button>
+                  </div>
+                  <div id="pauseHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                    Temporarily shields one tab from tab-limit closing. Does not pause the Break timer or wipe ranking data. Set a duration below and click Select, then open the extension popup on that tab and click the shield icon (top right) to keep it in place.
+                  </div>
+                </div>
+              </div>
+              <span id="pauseCountdown" style="font-size: 0.85em; font-weight: bold; color: #856404; display: none;"></span>
+            </div>
+            <div id="pauseSection" style="display:none; margin-top: 10px; padding-left: 25px;">
+              <div style="display: flex; align-items: center; gap: 15px;">
+                <input type="range" id="pauseDuration" min="0" max="60" value="0" style="flex: 1;">
+                <span id="pauseDurationLabel" style="font-weight: bold; min-width: 60px;">0 mins</span>
+                <button id="selectPauseDuration" class="btn" style="background: var(--pf-purple-600); padding: 8px 15px; font-size: 0.9em;">Select</button>
+              </div>
+              <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+                <div>
+                  <div class="pf-setting-heading" style="font-size: 0.85em; color: #666;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                      <input type="checkbox" id="autoShieldPopouts">
+                      Auto-shield tabs opened by other tabs for 10 minutes
+                    </label>
+                    <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="autoShieldPopoutsHelpPanel" title="How auto-shield works">?</button>
+                  </div>
+                  <div id="autoShieldPopoutsHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                    When a page opens a new tab for you, the old tab gets a short shield so it is not closed right away. After 10 minutes the shield expires and normal tab-limit rules apply. This only applies to tabs opened from other pages, not tabs you open yourself (e.g. Ctrl+T or the + button).
+                  </div>
+                </div>
+                <!-- "Auto-close pop-up tabs" removed 2026-07 (per user spec).
+                     Hidden checkbox kept so downstream reads / migrations
+                     don't NPE on `autoCloseAutoTabs`. -->
+                <input type="checkbox" id="autoCloseAutoTabs" hidden>
+              </div>
+            </div>
+              </div>
+              <!-- v83 (user spec "remove all previews"): the setting preview mount removed. -->
+            </div>
+          </div>
+
+          <div id="sessionResetContainer" style="margin-bottom: 20px; padding: 15px; background: #fff5f5; border-radius: 8px; border: 1px solid #feb2b2;">
+            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
+              <div class="pf-setting-demo-main pf-ranking-mode-main">
+            <div style="display: flex; align-items: flex-start; gap: 10px;">
+              <input type="checkbox" id="resetSessionCheck" style="margin-top: 3px;">
+              <div>
+                <div class="pf-setting-heading">
+                  <label for="resetSessionCheck"><span class="nb-sketch-icon" data-icon="warning" aria-hidden="true"></span><b>First opened windows</b></label>
+                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="resetSessionHelpPanel" title="What resets on close">?</button>
+                </div>
+                <div id="resetSessionHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                  Clears session data when this window closes and can reopen chosen tabs next time. Does not wipe ranking on a timer while the window is still open.
+                </div>
+              </div>
+            </div>
+            <div id="sessionResetSection" style="display:none; margin-top: 10px;">
+              <p style="font-size: 0.85em; color: #666; margin: 5px 0 12px 25px; line-height: 1.45; max-width: 560px;">
+                Open next time you close your window (one slot per tab in your limit).
+              </p>
+              <div id="startupTabManager" style="margin-left: 25px;">
+                <div id="startupSlotsHeader">
+                  <span style="font-size: 0.9em; font-weight: bold; color: #444;">Open on next session (<span id="startupSlotLimitLabel">5</span> tabs):</span>
+                  <div id="startupSlotsHeaderActions">
+                    <button type="button" id="fillStartupFromStatsBtn" title="Fill empty website slots with your most-used sites">Add most used websites</button>
+                    <button type="button" id="fillStartupFromProductiveBtn" title="Fill empty website slots with your most productive sites">Add most productive sites</button>
+                  </div>
+                </div>
+                <div id="fillStartupFromStatsStatus" aria-live="polite"></div>
+                <div id="startupSlotsList" style="margin-top: 8px;"></div>
+                <div id="startupSlotsConfirmRow">
+                  <div id="startupSlotsConfirmStatus" aria-live="polite"></div>
+                  <button type="button" id="confirmStartupSlots" class="btn" style="background: var(--pf-purple-600);">Confirm</button>
+                </div>
+              </div>
+            </div>
+              </div>
+              <!-- v83 (user spec "remove all previews"): the setting preview mount removed. -->
+            </div>
+          </div>
+
+          <!-- Activity-Aware Timer toggle removed 2026-07 — always ON now.
+               The break timer auto-pauses after 2 min of no input (except when
+               audible media is playing), and shows a "Timer paused — interact
+               to resume" card on the active tab. See PF_IDLE_THRESHOLD_SEC
+               in worker.js and showIdlePauseCardForWindow. -->
+          <div id="idlePauseContainer" hidden style="display:none;"></div>
+
+        </div>
+      </div>
     </div>
   </div>
   <!-- Reset Tutorial + Reset Previews used to live as floating red/purple
@@ -7189,8 +8205,43 @@
   <div id="pfSignInRequiredBanner" style="display: none; margin: 12px 0 16px; padding: 14px 16px; background: var(--pf-purple-100, #F0EBF8); border: 1px solid var(--pf-purple-300, #C4B5E0); border-radius: 8px; color: var(--pf-purple-text, #4A3D85); font-size: 0.95em; line-height: 1.45;">
     Sign in to activate PlayingFild. The extension does not classify pages or close tabs until you sign in.
   </div>
+  <!-- 30-minute signed-out test mode (user spec 2026-07 v56). Sits directly
+       under the sign-in banner. Button is only shown while signed out AND
+       the one-shot trial hasn't been used; clicking reveals the notice +
+       confirm. While a trial runs the banner above hides and the countdown
+       pill shows instead. All wiring in stats.js (pfBindTrialUI). -->
+  <div id="pfTrialOffer" style="display: none; margin: -6px 0 16px; padding: 12px 16px; background: var(--pf-purple-100, #F0EBF8); border: 1px dashed var(--pf-purple-300, #C4B5E0); border-radius: 8px; font-size: 0.95em; line-height: 1.5;">
+    <button type="button" id="pfTrialTestBtn" style="padding: 8px 14px; border-radius: 8px; border: 1px solid var(--pf-purple-300, #C4B5E0); background: #fff; cursor: pointer; font-size: 0.95em; color: var(--pf-purple-text, #4A3D85); font-weight: 600;">
+      Test for 30 Min
+    </button>
+    <!-- v59: Start next to Test; shown together with the notice on click. -->
+    <button type="button" id="pfTrialConfirmBtn" style="display: none; margin-left: 8px; padding: 8px 14px; border-radius: 8px; border: none; background: var(--pf-purple-text, #4A3D85); color: #fff; cursor: pointer; font-size: 0.95em; font-weight: 600;">
+      Start 30 minute test
+    </button>
+    <!-- v83 (user spec): bigger — matches #tutorTrialNotice. These are the
+         trial's actual terms, not small print. -->
+    <div id="pfTrialNotice" style="display: none; margin-top: 10px; font-size: 1.12em; line-height: 1.6; color: var(--pf-purple-text, #4A3D85);">
+      After 30 minutes of use the extension will stop working until you sign in.
+      No page content, address or site name leaves it until you create an account.
+      <strong>You will have to classify sites yourself during the test.</strong>
+    </div>
+    <div id="pfTrialCountdown" style="display: none; color: var(--pf-purple-text, #4A3D85); font-weight: 600;"></div>
+    <div id="pfTrialSelfClassifyNote" style="display: none; margin-top: 6px; color: var(--pf-purple-text, #4A3D85); font-size: 0.9em;">
+      Because you are not signed in, you will have to classify sites yourself.
+      Explore all features right now. Create a free account at any time to
+      permanently save your data, training history, and custom settings.
+    </div>
+    <div id="pfTrialEnded" style="display: none; color: var(--pf-purple-text, #4A3D85);">
+      Your 30 minute test has ended. Sign in to keep using PlayingFild.
+    </div>
+  </div>
 
   <div id="tutorialOverlay"><div id="tutorialBackdropHole"></div></div>
+  <!-- v69: step-13 entry veil. Covers the dashboard (z above the overlay,
+       below the tutor header/box) while the chart step scrolls into place,
+       then fades — the settle motion is simply never visible. Shown/hidden
+       by stats.js (pfShowStep13Veil / pfFadeStep13Veil). -->
+  <div id="pfStep13Veil" hidden aria-hidden="true"></div>
 
   <div id="tutorialContentWrapper">
     <div id="tutorialProgress" aria-hidden="true"><div id="tutorialProgressFill"></div></div>
@@ -7427,6 +8478,20 @@
         <button id="tutorSkip">Skip Tutorial</button>
         <button id="tutorNext">Next</button>
         <button id="tutorSignIn" type="button">Sign In</button>
+        <!-- 30-minute signed-out test (user spec v57: "on the tutorial stage
+             next to the sign in button"). Shown only on the sign-in step
+             while the one-shot trial is still available; wiring in stats.js
+             (pfBindTrialUI / pfSyncTutorTrialButton). -->
+        <button id="tutorTrialBtn" type="button">Test for 30 min</button>
+        <!-- v59: Start sits NEXT TO the Test button (not inside the notice);
+             both the notice text and this button appear only after the user
+             clicks Test for 30 min. -->
+        <button id="tutorTrialConfirm" type="button">Start 30 minute test</button>
+      </div>
+      <div id="tutorTrialNotice" hidden>
+        After 30 minutes of use the extension will stop working until you sign in.
+        No page content, address or site name leaves it until you create an account.
+        <strong>You will have to classify sites yourself during the test.</strong>
       </div>
     </div>
   </div>
@@ -7479,10 +8544,67 @@
        and body.tutorial-step-wipe rules. -->
 
 
+  <!-- Privacy-policy change notice. EXISTING INSTALLS ONLY: worker.js stamps
+       fresh installs with the current PRIVACY_POLICY_VERSION at install time,
+       so this can only ever appear for someone whose profile predates the
+       change. Hidden by default and shown by pfMaybeShowPrivacyNotice().
+       Sits above the tabs so it is the first thing on the page, and it is
+       suppressed for the whole tutorial (CSS below) so it cannot land on top
+       of an onboarding step. -->
+  <!-- Trial-expiry notice. Shown only when the worker hands the user here
+       with ?trialExpired=1 after the 30 minute test runs out. Reuses the
+       privacy-notice chrome so the two read as one family. -->
+  <div id="pfTrialExpiredNotice" class="pf-privacy-notice pf-trial-expired-notice" hidden role="status">
+    <div class="pf-privacy-notice-body">
+      <strong>Your time is up.</strong>
+      <span>Please sign up to get the full experience of &gt;=PlayingFild. Your settings and everything you have classified so far are kept.</span>
+    </div>
+    <div class="pf-privacy-notice-actions">
+      <button type="button" id="pfTrialExpiredSignUp">Create free account</button>
+      <button type="button" id="pfTrialExpiredDismiss" class="pf-notice-secondary">Not now</button>
+    </div>
+  </div>
+
+  <div id="pfPrivacyNotice" class="pf-privacy-notice" hidden role="status">
+    <div class="pf-privacy-notice-body">
+      <strong>We have updated our Privacy Policy.</strong>
+      <span>PlayingFild now records anonymous, masked session replays of the dashboard to help us find bugs. No page titles, hostnames or account details are captured, and you can turn it off at any time in Settings.</span>
+    </div>
+    <div class="pf-privacy-notice-actions">
+      <a id="pfPrivacyNoticeRead" href="https://gist.github.com/NotRedFox/e400c02894f215b20b805e16eda7aa88" target="_blank" rel="noopener noreferrer">Read the policy</a>
+      <button type="button" id="pfPrivacyNoticeDismiss">Got it</button>
+    </div>
+  </div>
+
   <div class="tabs">
     <div class="tab active" id="windowTab">Window Settings</div>
     <div class="tab" id="statsTab" style="position: relative;">Stats &amp; Words<span id="statsTabRecapBadge" class="pf-recap-tab-badge" hidden aria-label="New Wrapped ready"></span></div>
     <div class="tab" id="customizationsTab">Customisations</div>
+  </div>
+
+  <!-- Mode switcher. Sits directly under the main tabs, one level down in
+       the hierarchy (smaller, lighter) so it reads as "which mode am I in"
+       rather than a fourth top-level tab.
+
+       Casual = everything the extension does today: classify, rank,
+       tab limits, earned break time.
+
+       Research Mode = the scoped-goal mode (declare what you're working
+       on, only relevant sites stay open, tab limit off). Not built yet,
+       so the tab is disabled and carries a Coming soon badge. It was
+       previously a greyed-out card buried inside Window Settings. -->
+  <!-- v83 (user spec): sits flush against the content below it, so it reads
+     as attached to the dashboard rather than floating between the main
+     tabs and the cards. Bottom margin dropped and the bottom corners
+     squared off so the seam closes. -->
+  <div class="pf-mode-tabs" role="tablist" aria-label="Browsing mode" style="display: flex; gap: 8px; margin: 10px 0 0; padding: 5px; background: var(--pf-purple-100); border-radius: 12px 12px 0 0; width: 100%; box-sizing: border-box;">
+    <button type="button" id="modeLockedInTab" class="pf-mode-tab is-active" role="tab" aria-selected="true" style="flex: 1 1 50%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 18px; border: none; border-radius: 9px; background: #fff; color: #221a44; font-weight: 700; font-size: 1.02em; cursor: pointer; box-shadow: 0 1px 3px rgba(34,26,68,0.14);">
+      Casual
+    </button>
+    <button type="button" id="modeResearchTab" class="pf-mode-tab" role="tab" aria-selected="false" disabled title="Type in what you're trying to study or work on and only sites relevant to that goal stay open. The more specific you are, the better it locks in. While Research Mode is on, your tab limit is turned off so you can pull up as many relevant sources as you need." style="flex: 1 1 50%; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 14px 18px; border: none; border-radius: 9px; background: transparent; color: #8a8399; font-weight: 600; font-size: 1.02em; cursor: not-allowed; opacity: 0.75;">
+      Research Mode
+      <span class="pf-research-mode-badge" style="font-size: 0.66em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b6580; background: rgba(107, 101, 128, 0.16); padding: 3px 8px; border-radius: 999px;">Soon</span>
+    </button>
   </div>
 
   <div class="content-box">
@@ -7516,252 +8638,373 @@
                  AND pops the message. min stays because 0 tabs makes no
                  sense. -->
             <input type="number" id="maxTabLimit" value="5" min="1" style="width: 45px; border: none;">
-            <button id="tabLimitLockBtn" class="is-unlocked" aria-label="Lock tab limit value" title="Lock tab limit value"><span class="pf-control-icon" data-icon="lock-open" aria-hidden="true"></span></button>
+            <!-- v83 (user spec): the tab-limit lock button is removed
+                 entirely. Confirm is now gated on a valid number alone —
+                 see updateTutorialTabLimitControls in stats.js. -->
             <button id="confirmTabLimit" style="padding: 4px 8px; font-size: 0.7em; color: white; border: none; border-radius: 4px; cursor: pointer;">Confirm</button>
             <span id="tabUpdateTick">✓</span>
           </div>
         </div>
 
         <div id="enforcerToggleRow">
-          <!-- Two-column layout (user spec 2026-07 v40): Unproductive Tab
-               Closer sits on the LEFT (narrower now), Reorder Tabs toggle
-               sits on the RIGHT on the same line. A slim vertical divider
-               separates them. Each cell has its own heading + toggle. -->
-          <div style="display:flex;gap:16px;align-items:stretch;">
-            <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;">
-              <div style="min-width:0;">
-                <div class="pf-setting-heading" style="margin-bottom: 4px;">
+          <!-- THREE-column layout (user spec 2026-07 v84): Unproductive Tab
+               Closer, Reorder Tabs and Auto group similar tabs all sit on
+               ONE line, separated by slim vertical dividers. Auto group used
+               to be a second row underneath.
+
+               Each cell is now a COLUMN, not a left/right split: title +
+               toggle share the top line, the caption runs full cell width
+               below. At one third of the row a side-by-side toggle would
+               leave roughly 120px for the caption and every one of them
+               would wrap to four or five lines. -->
+          <div style="display:flex;gap:14px;align-items:stretch;">
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <div class="pf-setting-heading" style="margin-bottom: 4px;min-width:0;">
                   <strong>Unproductive Tab Closer</strong>
                   <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="enforcerScopeHelpPanel" title="What this closes">?</button>
                 </div>
-                <div id="enforcerScopeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                  Closes unproductive tabs when you hit your tab limit. Does not close productive or neutral tabs by default.
-                </div>
-                <p class="pf-enforcer-scope-desc">Automatically closes unproductive tabs when you reach your tab limit.</p>
-              </div>
-              <div id="enforcerWrapper" class="toggle-wrapper" style="flex-shrink:0;">
-                <label style="position:relative;display:inline-block;width:48px;height:26px;">
-                  <input type="checkbox" id="enforcerToggle">
-                  <span id="enforcerSlider"></span>
-                </label>
-                <div id="enforcerHelpText" class="enforcer-help-text hidden">
-                  <span class="lock-icon"><span class="nb-sketch-icon" data-icon="lock-closed" aria-hidden="true"></span></span> Turn off timer to enable
+                <div id="enforcerWrapper" class="toggle-wrapper" style="flex-shrink:0;">
+                  <label style="position:relative;display:inline-block;width:48px;height:26px;">
+                    <input type="checkbox" id="enforcerToggle">
+                    <span id="enforcerSlider"></span>
+                  </label>
+                  <!-- v83 (user spec): the "Turn off timer to enable" note is
+                       gone. The element stays (stats.js toggles .hidden on it)
+                       but carries no text, so nothing renders. -->
+                  <div id="enforcerHelpText" class="enforcer-help-text hidden"></div>
                 </div>
               </div>
+              <div id="enforcerScopeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                Closes unproductive tabs when you hit your tab limit. Does not close productive or neutral tabs by default.
+              </div>
+              <p class="pf-enforcer-scope-desc">Automatically closes unproductive tabs when you reach your tab limit.</p>
             </div>
             <div id="enforcerReorderDivider" style="width:1px;background:rgba(91,75,159,0.18);flex-shrink:0;"></div>
-            <div id="reorderTabsCell" style="flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;">
-              <div style="min-width:0;">
-                <div class="pf-setting-heading" style="margin-bottom: 4px;">
+            <div id="reorderTabsCell" style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <div class="pf-setting-heading" style="margin-bottom: 4px;min-width:0;">
                   <strong>Reorder Tabs</strong>
                   <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="reorderTabsHelpPanel" title="What this does">?</button>
                 </div>
-                <div id="reorderTabsHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                  Automatically reorders your open tabs by engagement. Most-used on the left, least-used on the right. Off means tabs stay wherever you put them.
+                <div class="toggle-wrapper" style="flex-shrink:0;">
+                  <label style="position:relative;display:inline-block;width:48px;height:26px;">
+                    <input type="checkbox" id="reorderTabsToggle">
+                    <span id="reorderTabsSlider"></span>
+                  </label>
                 </div>
-                <p class="pf-enforcer-scope-desc">Sorts tabs by engagement so the most-used ones stay leftmost.</p>
               </div>
-              <div class="toggle-wrapper" style="flex-shrink:0;">
-                <label style="position:relative;display:inline-block;width:48px;height:26px;">
-                  <input type="checkbox" id="reorderTabsToggle">
-                  <span id="reorderTabsSlider"></span>
-                </label>
+              <div id="reorderTabsHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                Automatically reorders your open tabs by importance. A tab counts as important when you spend real time on it and when you keep coming back to it, so something you reopen all day sits left of something you left running once. Off means tabs stay wherever you put them.
               </div>
+              <p class="pf-enforcer-scope-desc">Sorts tabs by importance so the ones you use and revisit most stay leftmost.</p>
+            </div>
+            <!-- Own divider so the tutorial can hide the Reorder cell and its
+                 divider (rule above) and still leave a clean two-column row. -->
+            <div id="enforcerGroupDivider" style="width:1px;background:rgba(91,75,159,0.18);flex-shrink:0;"></div>
+            <div id="groupSimilarTabsCell" style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <div class="pf-setting-heading" style="margin-bottom: 4px;min-width:0;">
+                  <strong>Auto group similar tabs</strong>
+                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="groupSimilarHelpPanel" title="What this does">?</button>
+                </div>
+                <div class="toggle-wrapper" style="flex-shrink:0;">
+                  <label style="position:relative;display:inline-block;width:48px;height:26px;">
+                    <input type="checkbox" id="groupSimilarTabsToggle">
+                    <span id="groupSimilarTabsSlider"></span>
+                  </label>
+                </div>
+              </div>
+              <div id="groupSimilarHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                <p>Keeps tabs about the same thing next to each other. Read five articles on one topic across five different sites and they gather into one run instead of scattering across the bar.</p>
+                <p>Matching uses page titles and site names, all on your device. It catches shared wording, so "Coronavirus" pages group together, but it will not spot that "COVID-19" means the same thing.</p>
+                <p><strong>With Reorder Tabs on:</strong> groups are ordered by importance, and so are the tabs inside each group.<br><strong>With Reorder Tabs off:</strong> nothing is promoted. Related tabs are pulled together and otherwise keep the order you left them in.</p>
+              </div>
+              <p class="pf-enforcer-scope-desc">Keeps tabs on the same topic next to each other in the tab bar.</p>
             </div>
           </div>
           <p id="enforcerAdvEarnNote" class="pf-adv-earn-lock-note" hidden style="margin:6px 0 0;font-size:0.85em;color:#8a6d3b;">
             Turn off Advanced Earn/Spend to use this.
           </p>
         </div>
-        <!-- ── Study Break (moved here from Advanced Settings per user spec
-             2026-07: lives directly below the Unproductive Tab Closer; the
-             Reminders dropdown from the old Break/Unproductive timer card is
-             attached at its bottom). ─────────────────────────────────────── -->
-        <div id="studyBreakBlock" class="timer-card" style="margin-top: 16px;">
-          <!-- Stacked column (user spec 2026-07, same as Advanced Earn/
-               Spend): settings → preview OVER → Break available UNDER. -->
-          <div class="pf-setting-demo-layout pf-ranking-mode-layout pf-modeb-demo-layout">
-            <div class="pf-setting-demo-main pf-ranking-mode-main">
-          <div class="timer-card-header">
-            <div class="pf-setting-heading">
+        <!-- v83 (user spec): hairline between the automation toggles and
+             everything below them. A standalone rule rather than a
+             border-bottom on #enforcerToggleRow, because that element is a
+             bordered card in its own right — recolouring its own bottom
+             edge would read as a broken card, not as a section break. -->
+        <div class="pf-section-divider" role="presentation"></div>
+        <!-- ── Tab Bar Ranking. Swapped above the Work Timer per user spec
+             2026-07-30 (was below it). ──────────────────────────────────── -->
+        <div id="rankingModeContainer" class="timer-card" style="margin-bottom: 20px;">
+          <div class="pf-ranking-mode-layout">
+            <div id="rankingModeMain" class="pf-ranking-mode-main">
+              <div class="pf-ranking-mode-heading">
+                <span>Tab Bar Ranking</span>
+                <button type="button" id="rankingModeHelpBtn" class="pf-inline-help-btn" aria-expanded="false" aria-controls="rankingModeHelpPanel" title="Explain ranking modes">?</button>
+              </div>
+              <div id="rankingModeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                <p><strong>Per tab:</strong> Each tab is tracked on its own. Tabs you use more move left; tabs you use less move right and close first when you hit your tab limit.</p>
+                <p><strong>Per website:</strong> Time is pooled by website across all tabs. If you spend time on youtube.com in one tab, opening YouTube again in another tab shares that history for ordering and tab-limit closing.</p>
+              </div>
+              <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; cursor: pointer; font-size: 0.9em;">
+                <input type="radio" name="rankingMode" id="rankingModeTab" value="tab" checked style="margin-top: 3px;">
+                <span><strong>Per tab</strong> (default). Track each tab separately.</span>
+              </label>
+              <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9em;">
+                <input type="radio" name="rankingMode" id="rankingModeWebsite" value="website" style="margin-top: 3px;">
+                <span><strong>Per website</strong>. Track time across entire websites.</span>
+              </label>
+            </div>
+          <!-- v83 (user spec "remove all previews"): the Ranking Mode
+               preview aside (#rankingModeDemoShell, 141 lines) was removed
+               here. Every reader in stats.js already guarded on the element
+               being absent (`const shell = $(...); if (!shell) return;`), so
+               the demo/expand/dismiss code below it simply no-ops now. -->
+          </div>
+
+          <div id="wipeTabTimesContainer" class="inactive" style="border: none; box-shadow: none;">
+            <!-- Per user report 2026-07: the previous 12px top padding on the
+                 flex row revealed a hairline seam between the transparent
+                 inactive state and the white active state whenever the user
+                 toggled the checkbox on default skin. Drop the padding + kill
+                 any inherited top border so there's no visible line. -->
+            <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 0; padding-top: 0; border-top: none;">
+              <input type="checkbox" id="enableWipeTabTimes" style="margin-top: 3px;">
+              <div>
+                <div class="pf-setting-heading">
+                  <label for="enableWipeTabTimes"><span class="nb-sketch-icon" data-icon="clock" aria-hidden="true"></span><b>Reset Tab Ranking Scores</b></label>
+                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="wipeTabTimesHelpPanel" title="What this resets">?</button>
+                </div>
+                <div id="wipeTabTimesHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                  Resets tab ranking scores on a schedule while this window stays open. Does not close the window or choose startup tabs. Only applies in Per tab ranking mode.
+                </div>
+              </div>
+            </div>
+            <div id="wipeTabTimesSection" style="display:none; margin-top: 10px; padding-left: 25px;">
+              <!-- "Pick how often ranking data clears..." paragraph removed
+                   per user spec 2026-07: the header + interval dropdown are
+                   self-explanatory and the paragraph was noise. -->
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                <label for="wipeTabTimesInterval" style="font-size: 0.85em; color: #444;">Reset at most every</label>
+                <select id="wipeTabTimesInterval" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85em;">
+                  <option value="10m">10 minutes</option>
+                  <option value="30m">30 minutes</option>
+                  <option value="1h">1 hour</option>
+                  <option value="6h">6 hours</option>
+                  <option value="12h">12 hours</option>
+                  <option value="1d">1 day</option>
+                  <option value="3d">3 days</option>
+                  <option value="1w">1 week</option>
+                </select>
+              </div>
+              <div id="wipeTabTimesAtRow" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <label for="wipeTabTimesAt" style="font-size: 0.85em; color: #444;">Preferred reset time</label>
+                <input type="time" id="wipeTabTimesAt" value="09:00" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85em;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="studyBreakBlock" class="timer-card pf-card-collapsible" style="margin-top: 16px;">
+          <!-- v83 (user spec): the Work Timer is collapsed to just its title
+               until clicked. Same button/chevron/aria-expanded pattern as the
+               Reminders dropdown that already lives inside this card, so the
+               two read as one family. The help "?" is a SIBLING of the toggle,
+               not a child — a button inside a button is invalid and the inner
+               one stops receiving clicks in some engines.
+               Collapsed state is not persisted: the spec is that a user sees
+               just "Work Timer" when they arrive. The tutorial force-opens it
+               (several steps target #unprodReminderDropdown and the timer
+               fields, both of which live in the body). -->
+          <div class="pf-setting-heading pf-card-toggle-row">
+            <button id="studyBreakToggle" type="button" class="pf-card-toggle" aria-expanded="false" aria-controls="studyBreakBody">
               <strong>Work Timer</strong>
-              <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="studyBreakHelpPanel" title="How the Work Timer works">?</button>
-            </div>
-            <div id="studyBreakHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-              Earn break time while the Work/Study timer runs on productive tabs. Use banked break time without ending your work/study session early.
-            </div>
-            <!-- Same style as the Advanced Earn/Spend description (user
-                 spec 2026-07) so both cards read identically per theme. -->
-            <p style="margin: 0 0 12px 0; color: #555; font-size: 0.9em;">Earn break time during study sessions, spend it when you need a break.</p>
-          </div>
-          <div class="timer-card-controls">
-            <!-- Enable checkbox removed 2026-07 — clicking Start timer implies
-                 enable. Persisted state lives in `studyBreakEnabled` for
-                 back-compat; kept hidden so downstream reads still work. -->
-            <input type="checkbox" id="studyBreakEnabled" hidden>
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); overflow-x: auto; white-space: nowrap;">
-              <span>Every</span>
-              <div class="timer-hms" data-sync-id="studyBreakEveryTime" aria-label="Study time per break deposit">
-                <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                <span class="timer-hms-sep">:</span>
-                <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="25" aria-label="Minutes">
-                <span class="timer-hms-sep">:</span>
-                <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-              </div>
-              <input type="hidden" id="studyBreakEveryTime" value="0:25:00">
-              <span>on productive tabs, earn</span>
-              <div class="timer-hms" data-sync-id="studyBreakEarnTime" aria-label="Break time earned per deposit">
-                <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                <span class="timer-hms-sep">:</span>
-                <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="5" aria-label="Minutes">
-                <span class="timer-hms-sep">:</span>
-                <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-              </div>
-              <input type="hidden" id="studyBreakEarnTime" value="0:05:00">
-              <span>break.</span>
-              <button type="button" id="studyBreakStartBtn" class="pf-timer-btn pf-timer-btn--start">Start timer</button>
-              <button type="button" id="studyBreakStopBtn" class="pf-timer-btn pf-timer-btn--stop" hidden>Stop timer</button>
-              <div id="studyBreakAvailableRow" style="display: inline-flex; align-items: center; gap: 10px; padding: 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3; width: fit-content; position: relative;">
-                <span style="font-weight: bold; color: #2d5a2d;">Break available:</span>
-                <span id="studyBreakAvailableDisplay" style="font-family: monospace; font-size: 1.1em; font-weight: bold; color: #28a745;">0m</span>
-              </div>
-            </div>
-            <span id="studyBreakStatus" style="display: block; margin-top: 4px; font-family: monospace; font-size: 0.9em; color: #5B4B9F; font-weight: 600;"></span>
-            <div data-pf-demo-mount="studyBreak" style="position: relative;"></div>
-            <p id="studyBreakAdvEarnNote" class="pf-adv-earn-lock-note" hidden style="margin:6px 0 0;font-size:0.85em;color:#8a6d3b;">
-              Turn off Advanced Earn/Spend to use this.
-            </p>
-          </div>
-            </div>
-          </div>
-          <!-- ── Reminders (moved from the removed Break/Unproductive timer
-               card — same IDs, same behavior). ───────────────────────────── -->
-          <div id="unprodReminderDropdown" class="pf-reminder-dropdown" style="margin-top:4px;padding:0;border:1px solid #e5e0f3;border-radius:8px;background:#fafaff;">
-            <button id="unprodReminderToggle" type="button" aria-expanded="true" aria-controls="unprodReminderPanel"
-              style="width:100%;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;background:transparent;border:none;cursor:pointer;font-weight:600;color:#5B4B9F;font-size:0.95em;">
-              <span id="unprodReminderHeading">Reminders</span>
-              <span class="pf-reminder-chev" aria-hidden="true">▾</span>
+              <span class="pf-card-toggle-chev" aria-hidden="true">&#9662;</span>
             </button>
-            <div id="unprodReminderPanel" style="padding:0 14px 12px;border-top:1px solid #e5e0f3;">
-              <!-- Merged 2026-07 into a single wrapping row so "Suggested
-                   break: 5 min" sits inline with "Remind me after 20 min
-                   on unproductive tabs" instead of a stacked second line. -->
-              <label id="unprodReminderEnabledRow" style="display:flex;align-items:center;gap:8px;margin:10px 0 8px;flex-wrap:wrap;cursor:pointer;border-radius:8px;padding:4px 6px;margin-left:-6px;transition:background 0.3s ease, box-shadow 0.3s ease;">
-                <input type="checkbox" id="unprodReminderEnabled" checked>
-                <span>Remind me after</span>
-                <!-- Threshold is h + min (matches the break inputs) —
-                     stored as a single total-minutes value. -->
-                <input type="number" id="unprodReminderThresholdHours" min="0" max="12" step="1" value="0"
-                  inputmode="numeric" pattern="[0-9]*"
-                  style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
-                <span>h</span>
-                <input type="number" id="unprodReminderThresholdMin" min="0" max="59" step="1" value="30"
-                  inputmode="numeric" pattern="[0-9]*"
-                  style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
-                <span>min on unproductive</span>
-                <!-- "and neutral" toggle-word: grayed out when off; clicking
-                     flips it to (semi) normal weight and the reminder then
-                     also fires on Neutral tabs. -->
-                <button type="button" id="unprodReminderNeutralToggle" class="pf-neutral-word"
-                  aria-pressed="false" title="Also remind on neutral tabs">and neutral</button>
-                <span>tabs, suggest a</span>
-                <!-- Hours field removed for the break area per user spec
-                     2026-07 v8. Kept the hidden input so JS handlers that
-                     still read Hours + Min into a single total-minutes
-                     value stay simple (Hours is pinned at 0). -->
-                <input type="hidden" id="unprodReminderSuggestHours" value="0">
-                <input type="number" id="unprodReminderSuggestMin" min="0" max="59" step="1" value="5"
-                  inputmode="numeric" pattern="[0-9]*"
-                  style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
-                <span>min break timer</span>
-                <!-- Pencil: edit the type-to-dismiss phrase. Hidden during
-                     the tutorial (CSS below). Uses the same pf-control-icon
-                     pencil SVG as the name-edit button so both edit buttons
-                     across the dashboard read as one consistent affordance
-                     (user spec 2026-07 v15 "make them the same icon"). -->
-                <button type="button" id="unprodReminderPhraseEdit" class="pf-phrase-pencil"
-                  aria-expanded="false" aria-controls="unprodReminderPhraseRow"
-                  aria-label="Edit dismiss phrase"
-                  title="Edit the phrase you type to dismiss the reminder"><span class="pf-control-icon" data-icon="pencil" aria-hidden="true"></span></button>
-              </label>
-              <!-- NOTE: no inline display here — an inline `display:flex`
-                   overrides the [hidden] attribute and the editor showed
-                   permanently (user report 2026-07). Layout lives in the
-                   stylesheet rule below so hidden actually hides. -->
-              <div id="unprodReminderPhraseRow" hidden>
-                <span style="font-size:0.85em;color:#555;">Type this to dismiss:</span>
-                <input type="text" id="unprodReminderPhraseInput" maxlength="120"
-                  placeholder="No I do not want to start a timer!"
-                  style="flex:1;min-width:220px;padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;">
-                <button type="button" id="unprodReminderPhraseSave"
-                  style="padding:5px 12px;border:none;border-radius:5px;background:#5B4B9F;color:#fff;font-weight:600;cursor:pointer;font-size:0.85em;">Save</button>
-                <span id="unprodReminderPhraseTick" style="color:#28a745;font-weight:700;opacity:0;transition:opacity 0.2s;">✓</span>
+              <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="studyBreakHelpPanel" title="How the Work Timer works">?</button>
+          </div>
+          <div id="studyBreakBody" hidden>
+            <!-- Stacked column (user spec 2026-07, same as Advanced Earn/
+                 Spend): settings → preview OVER → Break available UNDER. -->
+            <div class="pf-setting-demo-layout pf-ranking-mode-layout pf-modeb-demo-layout">
+              <div class="pf-setting-demo-main pf-ranking-mode-main">
+            <div class="timer-card-header">
+              <div id="studyBreakHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
+                Earn break time while the Work/Study timer runs on productive tabs. Use banked break time without ending your work/study session early.
               </div>
-              <style>
-                /* "and neutral" — a real toggle CHIP with unmistakable
-                   states. OFF: fully GRAYED OUT (flat gray, faded, dashed
-                   border — reads as disabled at a glance). ON: filled
-                   purple pill = the reminder also fires on Neutral tabs. */
-                .pf-neutral-word {
-                  cursor: pointer; padding: 3px 10px; border-radius: 999px;
-                  font-family: inherit; font-size: 0.92em; line-height: 1.2;
-                  border: 1px dashed #b8b8b8;
-                  background: #e4e4e4; color: #8a8a8a; font-weight: 500;
-                  opacity: 0.65; filter: grayscale(1);
-                  transition: background 0.15s ease, color 0.15s ease,
-                              border-color 0.15s ease, box-shadow 0.15s ease,
-                              opacity 0.15s ease, filter 0.15s ease,
-                              transform 0.08s ease;
-                }
-                .pf-neutral-word:hover { opacity: 0.9; border-color: #8f8f8f; }
-                .pf-neutral-word:active { transform: scale(0.96); }
-                .pf-neutral-word.is-on {
-                  background: linear-gradient(180deg, #6c5cb5, #5B4B9F);
-                  border: 1px solid transparent; color: #fff; font-weight: 600;
-                  box-shadow: 0 2px 8px rgba(91,75,159,0.35);
-                  opacity: 1; filter: none;
-                }
-                .pf-neutral-word.is-on:hover {
-                  background: linear-gradient(180deg, #7869c1, #6455ad);
-                  color: #fff; opacity: 1;
-                }
-                #unprodReminderPhraseRow {
-                  display: flex; align-items: center; gap: 8px;
-                  margin: 0 0 8px; flex-wrap: wrap;
-                }
-                #unprodReminderPhraseRow[hidden] { display: none !important; }
-                /* Naked pencil button — no outline, no background chrome,
-                   just the SVG icon (user spec 2026-07 v15 "remove the
-                   outline thing around those"). Hover gives a subtle
-                   purple wash centered on the icon; nothing rectangular. */
-                .pf-phrase-pencil {
-                  border: none; background: transparent; cursor: pointer;
-                  width: 28px; height: 28px; border-radius: 50%; line-height: 0;
-                  padding: 0; display: inline-flex; align-items: center; justify-content: center;
-                  transition: background 0.12s ease, transform 0.08s ease;
-                }
-                .pf-phrase-pencil:hover { background: rgba(91,75,159,0.10); }
-                .pf-phrase-pencil:active { transform: scale(0.92); }
-                /* Never show the phrase editor OR the "and neutral" toggle
-                   chip during the tutorial — both introduce extra concepts
-                   that distract from the reminder step's goal. */
-                body.tutorial-active .pf-phrase-pencil,
-                body.tutorial-active #unprodReminderPhraseRow,
-                body.tutorial-active #unprodReminderNeutralToggle { display: none !important; }
-              </style>
-              <!-- YouTube/Video timer is just another option inside the
-                   Reminders panel — it controls the per-video prompt that
-                   appears on YouTube watch pages. Independent toggle from
-                   the cumulative-time reminder above. -->
-              <!-- Unchecked by default (user spec 2026-07 v24): during
-                   onboarding the long-YouTube-video timer prompt should
-                   NOT be auto-selected — new users get an opt-in. Existing
-                   users' saved preference (in ytVideoTimerSettings) still
-                   overrides this default via the JS binder. -->
-              <label style="display:flex;align-items:center;gap:8px;margin:12px 0 0;cursor:pointer;padding-top:10px;border-top:1px solid #e5e0f3;">
-                <input type="checkbox" id="ytVideoTimerEnabled">
-                <span>Suggest a timer on long YouTube videos</span>
-              </label>
+              <!-- Same style as the Advanced Earn/Spend description (user
+                   spec 2026-07) so both cards read identically per theme. -->
+              <p style="margin: 0 0 12px 0; color: #555; font-size: 0.9em;">Earn break time during study sessions, spend it when you need a break.</p>
+            </div>
+            <div class="timer-card-controls">
+              <!-- Enable checkbox removed 2026-07 — clicking Start timer implies
+                   enable. Persisted state lives in `studyBreakEnabled` for
+                   back-compat; kept hidden so downstream reads still work. -->
+              <input type="checkbox" id="studyBreakEnabled" hidden>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); overflow-x: auto; white-space: nowrap;">
+                <span>Every</span>
+                <div class="timer-hms" data-sync-id="studyBreakEveryTime" aria-label="Study time per break deposit">
+                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="25" aria-label="Minutes">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                </div>
+                <input type="hidden" id="studyBreakEveryTime" value="0:25:00">
+                <span>on productive tabs, earn</span>
+                <div class="timer-hms" data-sync-id="studyBreakEarnTime" aria-label="Break time earned per deposit">
+                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="5" aria-label="Minutes">
+                  <span class="timer-hms-sep">:</span>
+                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
+                </div>
+                <input type="hidden" id="studyBreakEarnTime" value="0:05:00">
+                <span>break.</span>
+                <button type="button" id="studyBreakStartBtn" class="pf-timer-btn pf-timer-btn--start">Start timer</button>
+                <button type="button" id="studyBreakStopBtn" class="pf-timer-btn pf-timer-btn--stop" hidden>Stop timer</button>
+                <div id="studyBreakAvailableRow" style="display: inline-flex; align-items: center; gap: 10px; padding: 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3; width: fit-content; position: relative;">
+                  <span style="font-weight: bold; color: #2d5a2d;">Break available:</span>
+                  <span id="studyBreakAvailableDisplay" style="font-family: monospace; font-size: 1.1em; font-weight: bold; color: #28a745;">0m</span>
+                </div>
+              </div>
+              <span id="studyBreakStatus" style="display: block; margin-top: 4px; font-family: monospace; font-size: 0.9em; color: #5B4B9F; font-weight: 600;"></span>
+                <!-- v83 (user spec "remove all previews"): the setting preview mount removed. -->
+              <p id="studyBreakAdvEarnNote" class="pf-adv-earn-lock-note" hidden style="margin:6px 0 0;font-size:0.85em;color:#8a6d3b;">
+                Turn off Advanced Earn/Spend to use this.
+              </p>
+            </div>
+              </div>
+            </div>
+            <!-- ── Reminders (moved from the removed Break/Unproductive timer
+                 card — same IDs, same behavior). ───────────────────────────── -->
+            <div id="unprodReminderDropdown" class="pf-reminder-dropdown" style="margin-top:4px;padding:0;border:1px solid #e5e0f3;border-radius:8px;background:#fafaff;">
+              <button id="unprodReminderToggle" type="button" aria-expanded="true" aria-controls="unprodReminderPanel"
+                style="width:100%;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;background:transparent;border:none;cursor:pointer;font-weight:600;color:#5B4B9F;font-size:0.95em;">
+                <span id="unprodReminderHeading">Reminders</span>
+                <span class="pf-reminder-chev" aria-hidden="true">▾</span>
+              </button>
+              <div id="unprodReminderPanel" style="padding:0 14px 12px;border-top:1px solid #e5e0f3;">
+                <!-- Merged 2026-07 into a single wrapping row so "Suggested
+                     break: 5 min" sits inline with "Remind me after 20 min
+                     on unproductive tabs" instead of a stacked second line. -->
+                <label id="unprodReminderEnabledRow" style="display:flex;align-items:center;gap:8px;margin:10px 0 8px;flex-wrap:wrap;cursor:pointer;border-radius:8px;padding:4px 6px;margin-left:-6px;transition:background 0.3s ease, box-shadow 0.3s ease;">
+                  <input type="checkbox" id="unprodReminderEnabled" checked>
+                  <span>Remind me after</span>
+                  <!-- Threshold is h + min (matches the break inputs) —
+                       stored as a single total-minutes value. -->
+                  <input type="number" id="unprodReminderThresholdHours" min="0" max="12" step="1" value="0"
+                    inputmode="numeric" pattern="[0-9]*"
+                    style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
+                  <span>h</span>
+                  <input type="number" id="unprodReminderThresholdMin" min="0" max="59" step="1" value="30"
+                    inputmode="numeric" pattern="[0-9]*"
+                    style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
+                  <span>min on unproductive</span>
+                  <!-- "and neutral" toggle-word: grayed out when off; clicking
+                       flips it to (semi) normal weight and the reminder then
+                       also fires on Neutral tabs. -->
+                  <button type="button" id="unprodReminderNeutralToggle" class="pf-neutral-word"
+                    aria-pressed="false" title="Also remind on neutral tabs">and neutral</button>
+                  <span>tabs, suggest a</span>
+                  <!-- Hours field removed for the break area per user spec
+                       2026-07 v8. Kept the hidden input so JS handlers that
+                       still read Hours + Min into a single total-minutes
+                       value stay simple (Hours is pinned at 0). -->
+                  <input type="hidden" id="unprodReminderSuggestHours" value="0">
+                  <input type="number" id="unprodReminderSuggestMin" min="0" max="59" step="1" value="5"
+                    inputmode="numeric" pattern="[0-9]*"
+                    style="width:44px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;text-align:center;">
+                  <span>min break timer</span>
+                  <!-- Pencil: edit the type-to-dismiss phrase. Hidden during
+                       the tutorial (CSS below). Uses the same pf-control-icon
+                       pencil SVG as the name-edit button so both edit buttons
+                       across the dashboard read as one consistent affordance
+                       (user spec 2026-07 v15 "make them the same icon"). -->
+                  <button type="button" id="unprodReminderPhraseEdit" class="pf-phrase-pencil"
+                    aria-expanded="false" aria-controls="unprodReminderPhraseRow"
+                    aria-label="Edit dismiss phrase"
+                    title="Edit the phrase you type to dismiss the reminder"><span class="pf-control-icon" data-icon="pencil" aria-hidden="true"></span></button>
+                </label>
+                <!-- NOTE: no inline display here — an inline `display:flex`
+                     overrides the [hidden] attribute and the editor showed
+                     permanently (user report 2026-07). Layout lives in the
+                     stylesheet rule below so hidden actually hides. -->
+                <div id="unprodReminderPhraseRow" hidden>
+                  <span style="font-size:0.85em;color:#555;">Type this to dismiss:</span>
+                  <input type="text" id="unprodReminderPhraseInput" maxlength="120"
+                    placeholder="No I do not want to start a timer!"
+                    style="flex:1;min-width:220px;padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;">
+                  <button type="button" id="unprodReminderPhraseSave"
+                    style="padding:5px 12px;border:none;border-radius:5px;background:#5B4B9F;color:#fff;font-weight:600;cursor:pointer;font-size:0.85em;">Save</button>
+                  <span id="unprodReminderPhraseTick" style="color:#28a745;font-weight:700;opacity:0;transition:opacity 0.2s;">✓</span>
+                </div>
+                <style>
+                  /* "and neutral" — a real toggle CHIP with unmistakable
+                     states. OFF: fully GRAYED OUT (flat gray, faded, dashed
+                     border — reads as disabled at a glance). ON: filled
+                     purple pill = the reminder also fires on Neutral tabs. */
+                  .pf-neutral-word {
+                    cursor: pointer; padding: 3px 10px; border-radius: 999px;
+                    font-family: inherit; font-size: 0.92em; line-height: 1.2;
+                    border: 1px dashed #b8b8b8;
+                    background: #e4e4e4; color: #8a8a8a; font-weight: 500;
+                    opacity: 0.65; filter: grayscale(1);
+                    transition: background 0.15s ease, color 0.15s ease,
+                                border-color 0.15s ease, box-shadow 0.15s ease,
+                                opacity 0.15s ease, filter 0.15s ease,
+                                transform 0.08s ease;
+                  }
+                  .pf-neutral-word:hover { opacity: 0.9; border-color: #8f8f8f; }
+                  .pf-neutral-word:active { transform: scale(0.96); }
+                  .pf-neutral-word.is-on {
+                    background: linear-gradient(180deg, #6c5cb5, #5B4B9F);
+                    border: 1px solid transparent; color: #fff; font-weight: 600;
+                    box-shadow: 0 2px 8px rgba(91,75,159,0.35);
+                    opacity: 1; filter: none;
+                  }
+                  .pf-neutral-word.is-on:hover {
+                    background: linear-gradient(180deg, #7869c1, #6455ad);
+                    color: #fff; opacity: 1;
+                  }
+                  #unprodReminderPhraseRow {
+                    display: flex; align-items: center; gap: 8px;
+                    margin: 0 0 8px; flex-wrap: wrap;
+                  }
+                  #unprodReminderPhraseRow[hidden] { display: none !important; }
+                  /* Naked pencil button — no outline, no background chrome,
+                     just the SVG icon (user spec 2026-07 v15 "remove the
+                     outline thing around those"). Hover gives a subtle
+                     purple wash centered on the icon; nothing rectangular. */
+                  .pf-phrase-pencil {
+                    border: none; background: transparent; cursor: pointer;
+                    width: 28px; height: 28px; border-radius: 50%; line-height: 0;
+                    padding: 0; display: inline-flex; align-items: center; justify-content: center;
+                    transition: background 0.12s ease, transform 0.08s ease;
+                  }
+                  .pf-phrase-pencil:hover { background: rgba(91,75,159,0.10); }
+                  .pf-phrase-pencil:active { transform: scale(0.92); }
+                  /* Never show the phrase editor OR the "and neutral" toggle
+                     chip during the tutorial — both introduce extra concepts
+                     that distract from the reminder step's goal. */
+                  body.tutorial-active .pf-phrase-pencil,
+                  body.tutorial-active #unprodReminderPhraseRow,
+                  body.tutorial-active #unprodReminderNeutralToggle { display: none !important; }
+                </style>
+                <!-- YouTube/Video timer is just another option inside the
+                     Reminders panel — it controls the per-video prompt that
+                     appears on YouTube watch pages. Independent toggle from
+                     the cumulative-time reminder above. -->
+                <!-- Unchecked by default (user spec 2026-07 v24): during
+                     onboarding the long-YouTube-video timer prompt should
+                     NOT be auto-selected — new users get an opt-in. Existing
+                     users' saved preference (in ytVideoTimerSettings) still
+                     overrides this default via the JS binder. -->
+                <label style="display:flex;align-items:center;gap:8px;margin:12px 0 0;cursor:pointer;padding-top:10px;border-top:1px solid #e5e0f3;">
+                  <input type="checkbox" id="ytVideoTimerEnabled">
+                  <span>Suggest a timer on long YouTube videos</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -7840,536 +9083,10 @@
           </div>
         </div>
 
-        <div id="rankingModeContainer" class="timer-card" style="margin-bottom: 20px;">
-          <div class="pf-ranking-mode-layout">
-            <div id="rankingModeMain" class="pf-ranking-mode-main">
-              <div class="pf-ranking-mode-heading">
-                <span>Tab Bar Ranking</span>
-                <button type="button" id="rankingModeHelpBtn" class="pf-inline-help-btn" aria-expanded="false" aria-controls="rankingModeHelpPanel" title="Explain ranking modes">?</button>
-              </div>
-              <div id="rankingModeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                <p><strong>Per tab:</strong> Each tab is tracked on its own. Tabs you use more move left; tabs you use less move right and close first when you hit your tab limit.</p>
-                <p><strong>Per website:</strong> Time is pooled by website across all tabs. If you spend time on youtube.com in one tab, opening YouTube again in another tab shares that history for ordering and tab-limit closing.</p>
-              </div>
-              <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; cursor: pointer; font-size: 0.9em;">
-                <input type="radio" name="rankingMode" id="rankingModeTab" value="tab" checked style="margin-top: 3px;">
-                <span><strong>Per tab</strong> (default). Track each tab separately.</span>
-              </label>
-              <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.9em;">
-                <input type="radio" name="rankingMode" id="rankingModeWebsite" value="website" style="margin-top: 3px;">
-                <span><strong>Per website</strong>. Track time across entire websites.</span>
-              </label>
-            </div>
-            <aside id="rankingModeDemoShell" class="pf-ranking-mode-demo" hidden aria-label="Ranking mode preview">
-              <div class="pf-rank-demo-toolbar">
-                <button type="button" id="rankingModeDemoExpand" class="pf-rank-demo-expand-btn" aria-haspopup="dialog" aria-label="Open preview" title="Open preview">
-                  <span class="pf-rank-demo-expand-icon" aria-hidden="true">⤢</span>
-                </button>
-                <button type="button" id="rankingModeDemoClose" class="pf-rank-demo-close-btn" aria-label="Hide preview" title="Hide preview">×</button>
-              </div>
-              <div id="rankingModeDemoTab" class="pf-rank-demo pf-rank-demo--tab is-visible">
-                <p class="pf-rank-demo-label">Per tab preview</p>
-                <p class="pf-rank-demo-note">Example uses a 5-tab limit (not a timer).</p>
-                <div class="pf-rank-demo-scale-wrap">
-                <div class="pf-rank-demo-browser">
-                  <div class="pf-rank-demo-chrome"><span></span><span></span><span></span><span class="pf-rank-demo-limit">5 tab limit</span></div>
-                  <div class="pf-rank-demo-stage">
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">1 · One YouTube tab to start. Each tab tracks its own time.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt" style="left: 58px;">YT #1<span class="pf-rank-time">1m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 116px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">2 · You stay on YT #1. Only that tab gains time.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 58px;">YT #1<span class="pf-rank-time">5m ↑</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 116px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout">Same site later, different tabs, tracked separately</p>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">3 · You open a second YouTube tab (4 of 5 tabs used).</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 50px;">YT #1<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-new" style="left: 100px;">YT #2<span class="pf-rank-time">0m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 150px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--new">+ new tab opened (brand new, no time yet)</p>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">4 · Tabs you use move left. YT #2 stays on the right (least time).</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 0;">YT #1<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 50px;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 100px;">Rd<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt" style="left: 150px; opacity: 0.85;">YT #2<span class="pf-rank-time">0m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--move">← more time on tab = further left</p>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">5 · You open a 6th tab. Over your 5-tab limit, the weakest closes.</p>
-                      <div class="pf-rank-demo-tabs pf-rank-demo-tabs--dense">
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 0;">YT #1<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 32px;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 64px;">Rd<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt" style="left: 96px;">YT #2<span class="pf-rank-time">0m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 128px;">Mail<span class="pf-rank-time">1m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd is-evict is-new" style="left: 160px;">Shop<span class="pf-rank-time">0m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--close">6 tabs open - 6th tab (0m) is knocked off</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="pf-rank-demo-caption-wrap">
-                  <p class="pf-rank-demo-caption">Each tab tracks its own time</p>
-                  <p class="pf-rank-demo-caption">Time counts on the tab you're on</p>
-                  <p class="pf-rank-demo-caption">Opening a tab starts at 0m on that tab</p>
-                  <p class="pf-rank-demo-caption">Tabs with more time move left</p>
-                  <p class="pf-rank-demo-caption">At your 5-tab limit, the 6th tab closes</p>
-                </div>
-                </div>
-              </div>
-              <div id="rankingModeDemoWebsite" class="pf-rank-demo pf-rank-demo--website" hidden>
-                <p class="pf-rank-demo-label">Per website preview</p>
-                <p class="pf-rank-demo-note">Example uses a 5-tab limit (not a timer).</p>
-                <div class="pf-rank-demo-scale-wrap">
-                <div class="pf-rank-demo-browser">
-                  <div class="pf-rank-demo-chrome"><span></span><span></span><span></span><span class="pf-rank-demo-limit">5 tab limit</span></div>
-                  <div class="pf-rank-demo-stage">
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">1 · Time is grouped by website, not by tab.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt" style="left: 58px;">YT<span class="pf-rank-time">0m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 116px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">2 · You watch YouTube. Time on youtube.com rises.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 58px;">YT<span class="pf-rank-time">5m ↑</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 116px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">3 · You open another YouTube tab. It pops in as NEW.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active" style="left: 46px;">YT<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-new" style="left: 92px;">YT<span class="pf-rank-time">0m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 138px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--new">+ new tab opened on youtube.com</p>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">4 · The new tab inherits youtube.com time.</p>
-                      <div class="pf-rank-demo-tabs">
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 0;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active is-linked" style="left: 46px;">YT<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active is-linked" style="left: 92px;">YT<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 138px;">Rd<span class="pf-rank-time">2m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--share">↔ same website = same time on every tab</p>
-                    </div>
-                    <div class="pf-rank-demo-frame">
-                      <p class="pf-rank-demo-step">5 · You open a 6th tab. Over your 5-tab limit, the weakest closes.</p>
-                      <div class="pf-rank-demo-tabs pf-rank-demo-tabs--dense">
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active is-linked" style="left: 0;">YT<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--yt is-active is-linked" style="left: 32px;">YT<span class="pf-rank-time">5m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 64px;">Doc<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd" style="left: 96px;">Rd<span class="pf-rank-time">2m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--doc" style="left: 128px;">Mail<span class="pf-rank-time">1m</span></span>
-                        <span class="pf-rank-tab pf-rank-tab--rd is-evict is-new" style="left: 160px;">Shop<span class="pf-rank-time">0m</span></span>
-                      </div>
-                      <p class="pf-rank-demo-callout pf-rank-demo-callout--close">6 tabs open - 6th tab (0m site) is knocked off</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="pf-rank-demo-caption-wrap">
-                  <p class="pf-rank-demo-caption">One time total per website</p>
-                  <p class="pf-rank-demo-caption">youtube.com time shows on the YT tab</p>
-                  <p class="pf-rank-demo-caption">You open a second YouTube tab</p>
-                  <p class="pf-rank-demo-caption">Both tabs show the same site time</p>
-                  <p class="pf-rank-demo-caption">At your 5-tab limit, the 6th tab closes</p>
-                </div>
-                </div>
-              </div>
-            </aside>
-          </div>
 
-          <div id="wipeTabTimesContainer" class="inactive" style="border: none; box-shadow: none;">
-            <!-- Per user report 2026-07: the previous 12px top padding on the
-                 flex row revealed a hairline seam between the transparent
-                 inactive state and the white active state whenever the user
-                 toggled the checkbox on default skin. Drop the padding + kill
-                 any inherited top border so there's no visible line. -->
-            <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 0; padding-top: 0; border-top: none;">
-              <input type="checkbox" id="enableWipeTabTimes" style="margin-top: 3px;">
-              <div>
-                <div class="pf-setting-heading">
-                  <label for="enableWipeTabTimes"><span class="nb-sketch-icon" data-icon="clock" aria-hidden="true"></span><b>Reset Tab Ranking Scores</b></label>
-                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="wipeTabTimesHelpPanel" title="What this resets">?</button>
-                </div>
-                <div id="wipeTabTimesHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                  Resets tab ranking scores on a schedule while this window stays open. Does not close the window or choose startup tabs. Only applies in Per tab ranking mode.
-                </div>
-              </div>
-            </div>
-            <div id="wipeTabTimesSection" style="display:none; margin-top: 10px; padding-left: 25px;">
-              <!-- "Pick how often ranking data clears..." paragraph removed
-                   per user spec 2026-07: the header + interval dropdown are
-                   self-explanatory and the paragraph was noise. -->
-              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
-                <label for="wipeTabTimesInterval" style="font-size: 0.85em; color: #444;">Reset at most every</label>
-                <select id="wipeTabTimesInterval" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85em;">
-                  <option value="10m">10 minutes</option>
-                  <option value="30m">30 minutes</option>
-                  <option value="1h">1 hour</option>
-                  <option value="6h">6 hours</option>
-                  <option value="12h">12 hours</option>
-                  <option value="1d">1 day</option>
-                  <option value="3d">3 days</option>
-                  <option value="1w">1 week</option>
-                </select>
-              </div>
-              <div id="wipeTabTimesAtRow" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <label for="wipeTabTimesAt" style="font-size: 0.85em; color: #444;">Preferred reset time</label>
-                <input type="time" id="wipeTabTimesAt" value="09:00" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.85em;">
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Research Mode card moved: it is now the second tab in the
+             .pf-mode-tabs switcher directly under the main tab row. -->
 
-        <!-- Research Mode (coming soon): a scoped browsing mode where the
-             user declares a study/work goal in plain language and only
-             sites relevant to that goal are allowed for the session. The
-             more specific the goal the tighter the allow-list. Card is
-             disabled + grayed for the first ship; live toggle unlocks
-             when the classifier + goal-parser are done. -->
-        <div id="researchModeContainer" class="timer-card pf-research-mode-card" style="margin-bottom: 20px; opacity: 0.55; cursor: not-allowed;" title="Coming soon">
-          <div class="pf-research-mode-heading" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 1.15em; color: #221a44;">Research Mode</span>
-            <span class="pf-research-mode-badge" style="font-size: 0.72em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b6580; background: rgba(107, 101, 128, 0.14); padding: 3px 8px; border-radius: 999px;">Coming soon</span>
-          </div>
-          <p style="margin: 0 0 12px; font-size: 0.9em; color: #4a4560; line-height: 1.45;">
-            Type in what you&rsquo;re trying to study or work on and only sites relevant to that goal stay open. The more specific you are, the better it locks in. While Research Mode is on, your tab limit is turned off so you can pull up as many relevant sources as you need.
-          </p>
-          <label for="researchModeGoalInput" style="display: block; font-size: 0.82em; color: #6b6580; font-weight: 600; margin-bottom: 6px;">Your goal for this session</label>
-          <textarea id="researchModeGoalInput" rows="2" disabled placeholder="e.g. Finish AP Bio unit 4 study guide on cell signaling pathways" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d6d1e6; border-radius: 8px; font-family: inherit; font-size: 0.9em; color: #6b6580; background: #f6f4fb; resize: vertical; pointer-events: none;"></textarea>
-          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
-            <button type="button" id="researchModeStartBtn" disabled style="padding: 8px 16px; border: none; border-radius: 8px; background: #b5aed0; color: #fff; font-weight: 600; cursor: not-allowed; pointer-events: none;">Start Research Mode</button>
-            <span style="font-size: 0.8em; color: #8a8399;">Available in a future update.</span>
-          </div>
-        </div>
-
-        <div id="advancedOptionsRow" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 10px; background: #eee; border-radius: 8px; cursor: pointer;">
-          <label for="enableLimits" class="nb-advanced-settings-label" style="font-weight: bold; color: #555; cursor: pointer; flex: 1;">
-            <input type="checkbox" id="enableLimits" class="nb-advanced-checkbox">
-            <span class="nb-sketch-icon nb-advanced-star" data-icon="star" aria-hidden="true"></span>
-            Advanced Settings
-          </label>
-        </div>
-
-        <div id="advancedLimitsSection" style="display: none;">
-          <div id="advancedFeaturesBlock" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc; background: #f8f8f8;">
-            <div class="pf-setting-heading" style="font-weight: bold; margin-bottom: 12px;">
-              <span class="nb-sketch-icon" data-icon="star" aria-hidden="true"></span>
-              <span>Advanced Settings</span>
-            </div>
-
-            <!-- (Study Break card moved out of Advanced Settings — it now
-                 lives directly below the Unproductive Tab Closer.) -->
-            <div id="advancedEarnSpendBlock" class="timer-card" style="margin-bottom: 0; background: #fff;">
-              <!-- pf-modeb-demo-layout: STACKED column (user spec 2026-07)
-                   so the vertical order is fixed forever: settings → the
-                   animated preview OVER → "Spend time available" UNDER.
-                   The old side-by-side flex reflowed at narrow widths and
-                   the badge/preview swapped places. -->
-              <div class="pf-setting-demo-layout pf-ranking-mode-layout pf-modeb-demo-layout">
-                <div class="pf-setting-demo-main pf-ranking-mode-main">
-              <!-- No longer a dropdown (per user spec 2026-07): the panel is
-                   always open, like the Study Break card. The chevron button
-                   is gone; stats.js bindAdvancedEarnSpendChevron /
-                   syncAdvancedEarnSpendPanelOpen no-op safely without it. -->
-              <!-- Checkbox moved up next to the heading per user spec
-                   2026-07 — matches the Study Break layout and removes the
-                   redundant "Enable advanced earn / spend" duplicate row. -->
-              <div class="pf-setting-heading pf-time-earned-heading" style="margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
-                <!-- Checkbox HIDDEN (not removed) per user spec 2026-07:
-                     Start timer turns the feature on, Stop turns it off.
-                     The input stays in the DOM because every existing
-                     reader (save/config/lock/exclusivity flows) keys off
-                     enableBankedTimeModeB.checked — same pattern as the
-                     legacy bankedTimeContainer IDs. -->
-                <input type="checkbox" id="enableBankedTimeModeB" style="display: none;" tabindex="-1" aria-hidden="true">
-                <span><b>Advanced Earn / Spend</b></span>
-                <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="advancedEarnSpendHelpPanel" title="How advanced earn/spend works">?</button>
-              </div>
-              <div id="advancedEarnSpendHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                Earn time while you're on your source sites, spend it automatically on any unproductive site. Earned break time ticks down while you browse distractions. (This is to block out neutral sights that may get passed the filter)
-              </div>
-              <p style="margin: 0 0 12px 0; color: #555; font-size: 0.9em;">Banks time on source sites; spends it on unproductive sites.</p>
-              <div id="advancedEarnSpendPanel" style="display: block; margin-top: 10px;">
-                <!-- "Comma-separated hosts, e.g. source `youtube.com`"
-                     paragraph removed per user spec 2026-07: the example now
-                     lives as gray placeholder text INSIDE the input, and
-                     naturally disappears once the user types their first
-                     site (default placeholder behavior). -->
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                  <label style="font-size: 0.9em; font-weight: 600;">Source sites (earn time here):</label>
-                  <p id="modeBAiSourceNote" class="pf-modeb-ai-source-note" hidden role="note" style="font-size: 0.8em; color: #5B4B9F; margin: 0 0 6px 0; line-height: 1.35;">
-                  </p>
-                  <div class="pf-site-pill-field" id="bankSourceSitesField">
-                    <div class="pf-site-pill-list" id="bankSourceSitesPills"></div>
-                    <input type="text" class="pf-site-pill-input" id="bankSourceSitesInput" placeholder="youtube.com, twitter.com" autocomplete="off" spellcheck="false">
-                  </div>
-                </div>
-                <!-- Timer-config row: width now hugs content (inline-flex
-                     + fit-content) instead of stretching across the panel
-                     — the previous flex row left a wide empty gap after
-                     "Start timer". Per user report 2026-07. The Spend
-                     time available badge sits on the same visual line as
-                     the button, OUTSIDE the padded box. -->
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
-                  <div style="display: inline-flex; align-items: center; gap: 8px; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); flex-wrap: nowrap; width: fit-content; white-space: nowrap;">
-                    <span>Every</span>
-                    <div class="timer-hms" data-sync-id="bankFocusTimeModeB" aria-label="Time on source per Mode B deposit">
-                      <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                      <span class="timer-hms-sep">:</span>
-                      <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="15" aria-label="Minutes">
-                      <span class="timer-hms-sep">:</span>
-                      <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-                    </div>
-                    <input type="hidden" id="bankFocusTimeModeB" value="0:15:00">
-                    <span>on source, earn</span>
-                    <div class="timer-hms" data-sync-id="bankEarnedTimeModeB" aria-label="Spend time earned per Mode B deposit">
-                      <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                      <span class="timer-hms-sep">:</span>
-                      <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="5" aria-label="Minutes">
-                      <span class="timer-hms-sep">:</span>
-                      <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-                    </div>
-                    <input type="hidden" id="bankEarnedTimeModeB" value="0:05:00">
-                    <span>of spend time.</span>
-                    <!-- Pause/Resume restored per user spec 2026-07 v10.
-                         State machine matches Study Break:
-                           idle    → Start only
-                           running → Pause + Stop
-                           paused  → Resume + Stop
-                         Wire-up + state application in stats.js
-                         (applyModeBEarnButtonState). -->
-                    <button type="button" id="modeBStartEarnBtn" class="pf-timer-btn pf-timer-btn--start">Start timer</button>
-                    <button type="button" id="modeBStopEarnBtn" class="pf-timer-btn pf-timer-btn--stop" hidden>Stop timer</button>
-                    <!-- Spend time available badge — moved INLINE at the end
-                         of the timer row per user spec 2026-07 v9 so it sits
-                         at the tail of the timer instead of on its own line
-                         underneath. Same content, new position. -->
-                    <div id="modeBSpendAvailableRow" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3; margin-left: 4px;">
-                      <span style="font-weight: bold; color: #2d5a2d;">Break available:</span>
-                      <span id="modeBSpendAvailableDisplay" style="font-family: monospace; font-size: 1.05em; font-weight: bold; color: #28a745;">0m</span>
-                    </div>
-                  </div>
-                </div>
-                <div data-pf-demo-mount="modeBEarnSpend" style="position: relative;"></div>
-                <!-- Break countdown panel (TIME + source pills) REMOVED per
-                     user spec 2026-07: the dashboard shows NO break
-                     indication beyond the timer button reading "Stop timer".
-                     The bottom-right floating pill carries the countdown.
-                     This row also held a DUPLICATE #modeBSpendAvailableDisplay
-                     (same id as the inline badge in the timer row) — gone
-                     with it. -->
-              </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div id="tabLifeContainer" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc; background: #f8f8f8;">
-            <div class="pf-setting-heading" style="font-weight: bold; margin-bottom: 4px;">
-              <span>Max Tab Life (Individual)</span>
-              <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="tabLifeHelpPanel" title="What this closes">?</button>
-            </div>
-            <div id="tabLifeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-              Closes individual tabs that stay open too long. Does not reset ranking scores or your whole session.
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-              <label for="tabLifeLimit" style="font-size: 0.9em;">Close tabs open longer than:</label>
-              <select id="tabLifeLimit" style="width: 140px; padding: 5px;">
-                <option value="">Off</option>
-                <option value="5m">5 Minutes</option>
-                <option value="10m">10 Minutes</option>
-                <option value="30m">30 Minutes</option>
-                <option value="1h">1 Hour</option>
-                <option value="12h">12 Hours</option>
-                <option value="24h">24 Hours</option>
-                <option value="2d">2 Days</option>
-                <option value="1w">1 Week</option>
-              </select>
-            </div>
-            <p id="tabLifeResearchNote" style="font-size: 0.92em; color: #555; margin: 0; line-height: 1.5; max-width: 560px;">
-              <strong>Study tip:</strong> Research shows a tab's return rate drops below 60% after just 5 minutes in the background.
-            </p>
-          </div>
-
-          <!-- legacy — UI moved to advancedEarnSpendBlock -->
-          <div id="bankedTimeContainer" hidden class="inactive" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc;">
-            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
-              <div class="pf-setting-demo-main pf-ranking-mode-main">
-            <div style="display: flex; align-items: flex-start; gap: 10px;">
-              <input type="checkbox" id="enableBankedTime" style="margin-top: 3px;">
-              <div>
-                <div class="pf-setting-heading">
-                  <label for="enableBankedTime"><span class="nb-sketch-icon" data-icon="target" aria-hidden="true"></span><b>Focused Time Banked</b></label>
-                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="bankedTimeHelpPanel" title="How banked time works">?</button>
-                </div>
-                <div id="bankedTimeHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                  Banks break time while the Work/Study timer runs. Does not restrict fun sites or run a site countdown. Only tabs/windows with >=PlayingFild installed can earn banked time.
-                </div>
-              </div>
-            </div>
-            <div id="bankedTimeSection" style="display:none; margin-top: 10px; padding-left: 25px;">
-              <p style="font-size: 0.85em; color: #666; margin: 0 0 12px 0; line-height: 1.45; max-width: 560px;">
-                Set your earn rate below. Time banks while the Work/Study timer runs. Click <b>Use</b> to load it onto the Break timer.
-              </p>
-              <div style="display: flex; align-items: center; gap: 8px; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 6px; border: 1px solid rgba(0,0,0,0.05); flex-wrap: wrap;">
-                <span>Every</span>
-                <div class="timer-hms" data-sync-id="bankFocusTime" aria-label="Productive time per bank deposit">
-                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                  <span class="timer-hms-sep">:</span>
-                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="15" aria-label="Minutes">
-                  <span class="timer-hms-sep">:</span>
-                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-                </div>
-                <input type="hidden" id="bankFocusTime" value="0:15:00">
-                <span>productive timer</span>
-                <div class="timer-hms" data-sync-id="bankEarnedTime" aria-label="Break time earned per deposit">
-                  <input type="text" class="timer-hms-h" inputmode="numeric" maxlength="2" value="0" aria-label="Hours">
-                  <span class="timer-hms-sep">:</span>
-                  <input type="text" class="timer-hms-m" inputmode="numeric" maxlength="4" value="5" aria-label="Minutes">
-                  <span class="timer-hms-sep">:</span>
-                  <input type="text" class="timer-hms-s" inputmode="numeric" maxlength="4" value="0" aria-label="Seconds">
-                </div>
-                <input type="hidden" id="bankEarnedTime" value="0:05:00">
-                <span>break.</span>
-              </div>
-              <div style="margin-top: 15px;">
-                <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #e8f5e8; border-radius: 6px; border: 1px solid #c3e6c3; flex-wrap: wrap;">
-                  <span style="font-weight: bold; color: #2d5a2d;">Time banked:</span>
-                  <span id="bankedTimeDisplay" style="font-size: 1.2em; font-weight: bold; color: #28a745;">0m</span>
-                  <button id="useBankedTime" class="btn" style="background: #28a745; padding: 5px 10px; font-size: 0.8em;">Use</button>
-                </div>
-                <div id="bankedTimeStatus" style="margin-top: 8px; font-size: 0.85em; font-weight: 600; min-height: 1.2em;"></div>
-                <div id="focusedBankProgress" style="margin-top: 6px; font-size: 0.8em; color: #666;">Progress toward next deposit: none</div>
-              </div>
-
-            </div>
-              </div>
-              <div data-pf-demo-mount="bankedTime"></div>
-            </div>
-          </div>
-
-          <div id="pauseContainer" class="inactive" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; border: 1px solid #ccc;">
-            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
-              <div class="pf-setting-demo-main pf-ranking-mode-main">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <div style="display: flex; align-items: flex-start; gap: 10px;">
-                <input type="checkbox" id="enablePause" style="margin-top: 3px;">
-                <div>
-                  <div class="pf-setting-heading">
-                    <label for="enablePause"><span class="nb-sketch-icon" data-icon="shield-sm" aria-hidden="true"></span><b>Keep a tab in place</b></label>
-                    <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="pauseHelpPanel" title="How tab shield works">?</button>
-                  </div>
-                  <div id="pauseHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                    Temporarily shields one tab from tab-limit closing. Does not pause the Break timer or wipe ranking data. Set a duration below and click Select, then open the extension popup on that tab and click the shield icon (top right) to keep it in place.
-                  </div>
-                </div>
-              </div>
-              <span id="pauseCountdown" style="font-size: 0.85em; font-weight: bold; color: #856404; display: none;"></span>
-            </div>
-            <div id="pauseSection" style="display:none; margin-top: 10px; padding-left: 25px;">
-              <div style="display: flex; align-items: center; gap: 15px;">
-                <input type="range" id="pauseDuration" min="0" max="60" value="0" style="flex: 1;">
-                <span id="pauseDurationLabel" style="font-weight: bold; min-width: 60px;">0 mins</span>
-                <button id="selectPauseDuration" class="btn" style="background: var(--pf-purple-600); padding: 8px 15px; font-size: 0.9em;">Select</button>
-              </div>
-              <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
-                <div>
-                  <div class="pf-setting-heading" style="font-size: 0.85em; color: #666;">
-                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
-                      <input type="checkbox" id="autoShieldPopouts">
-                      Auto-shield tabs opened by other tabs for 10 minutes
-                    </label>
-                    <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="autoShieldPopoutsHelpPanel" title="How auto-shield works">?</button>
-                  </div>
-                  <div id="autoShieldPopoutsHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                    When a page opens a new tab for you, the old tab gets a short shield so it is not closed right away. After 10 minutes the shield expires and normal tab-limit rules apply. This only applies to tabs opened from other pages, not tabs you open yourself (e.g. Ctrl+T or the + button).
-                  </div>
-                </div>
-                <!-- "Auto-close pop-up tabs" removed 2026-07 (per user spec).
-                     Hidden checkbox kept so downstream reads / migrations
-                     don't NPE on `autoCloseAutoTabs`. -->
-                <input type="checkbox" id="autoCloseAutoTabs" hidden>
-              </div>
-            </div>
-              </div>
-              <div data-pf-demo-mount="pause"></div>
-            </div>
-          </div>
-
-          <div id="sessionResetContainer" style="margin-bottom: 20px; padding: 15px; background: #fff5f5; border-radius: 8px; border: 1px solid #feb2b2;">
-            <div class="pf-setting-demo-layout pf-ranking-mode-layout">
-              <div class="pf-setting-demo-main pf-ranking-mode-main">
-            <div style="display: flex; align-items: flex-start; gap: 10px;">
-              <input type="checkbox" id="resetSessionCheck" style="margin-top: 3px;">
-              <div>
-                <div class="pf-setting-heading">
-                  <label for="resetSessionCheck"><span class="nb-sketch-icon" data-icon="warning" aria-hidden="true"></span><b>First opened windows</b></label>
-                  <button type="button" class="pf-inline-help-btn" aria-expanded="false" aria-controls="resetSessionHelpPanel" title="What resets on close">?</button>
-                </div>
-                <div id="resetSessionHelpPanel" class="pf-inline-help-panel" style="display: none;" aria-live="polite">
-                  Clears session data when this window closes and can reopen chosen tabs next time. Does not wipe ranking on a timer while the window is still open.
-                </div>
-              </div>
-            </div>
-            <div id="sessionResetSection" style="display:none; margin-top: 10px;">
-              <p style="font-size: 0.85em; color: #666; margin: 5px 0 12px 25px; line-height: 1.45; max-width: 560px;">
-                Open next time you close your window (one slot per tab in your limit).
-              </p>
-              <div id="startupTabManager" style="margin-left: 25px;">
-                <div id="startupSlotsHeader">
-                  <span style="font-size: 0.9em; font-weight: bold; color: #444;">Open on next session (<span id="startupSlotLimitLabel">5</span> tabs):</span>
-                  <div id="startupSlotsHeaderActions">
-                    <button type="button" id="fillStartupFromStatsBtn" title="Fill empty website slots with your most-used sites">Add most used websites</button>
-                    <button type="button" id="fillStartupFromProductiveBtn" title="Fill empty website slots with your most productive sites">Add most productive sites</button>
-                  </div>
-                </div>
-                <div id="fillStartupFromStatsStatus" aria-live="polite"></div>
-                <div id="startupSlotsList" style="margin-top: 8px;"></div>
-                <div id="startupSlotsConfirmRow">
-                  <div id="startupSlotsConfirmStatus" aria-live="polite"></div>
-                  <button type="button" id="confirmStartupSlots" class="btn" style="background: var(--pf-purple-600);">Confirm</button>
-                </div>
-              </div>
-            </div>
-              </div>
-              <div data-pf-demo-mount="sessionReset"></div>
-            </div>
-          </div>
-
-          <!-- Activity-Aware Timer toggle removed 2026-07 — always ON now.
-               The break timer auto-pauses after 2 min of no input (except when
-               audible media is playing), and shows a "Timer paused — interact
-               to resume" card on the active tab. See PF_IDLE_THRESHOLD_SEC
-               in worker.js and showIdlePauseCardForWindow. -->
-          <div id="idlePauseContainer" hidden style="display:none;"></div>
-
-        </div>
 
         <!-- PACKAGER: everything from PF_STRIP_OPEN through PF_STRIP_CLOSE
              below is removed from the PUBLIC build by
@@ -8429,16 +9146,8 @@
         </div>
         <!-- ── Recaps: Daily / Weekly Wrapped / Monthly Wrapped ───────────── -->
         <style>
-          /* Tutorial step 3: the tab-limit LOCK button glows so users spot the
-       "press the lock to unlock Confirm" action (user spec 2026-07). */
-    #tabLimitLockBtn.pf-tutorial-lock-glow {
-      animation: pfTutorLockGlow 1.4s ease-in-out infinite;
-      border-radius: 6px;
-    }
-    @keyframes pfTutorLockGlow {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(111, 66, 193, 0.55); }
-      50% { box-shadow: 0 0 0 7px rgba(111, 66, 193, 0.18), 0 0 14px rgba(111, 66, 193, 0.6); }
-    }
+          /* v83: the tab-limit LOCK glow (#tabLimitLockBtn.pf-tutorial-lock-glow
+       + @keyframes pfTutorLockGlow) went with the button it pulsed. */
     /* Advanced Settings first-days lock (user spec 2026-07): grayed row +
        countdown chip until the unlock timestamp passes. */
     #advancedOptionsRow.pf-adv-locked {
@@ -9416,6 +10125,24 @@
         </div>
       </div>
       <button type="button" id="pfSkipVideoGotIt" class="pf-skip-video-gotit">Got it</button>
+    </div>
+  </div>
+
+  <!-- v60: trial expectation popup — SAME look as the skip-tutorial popup
+       (reuses its classes). Shown by stats.js after the finish animation
+       (tutorial path) or immediately (dashboard path) while a 30-minute
+       test is live. -->
+  <div id="pfTrialClassifyModal" class="pf-skip-video-modal" hidden aria-hidden="true">
+    <div class="pf-skip-video-backdrop" id="pfTrialClassifyBackdrop"></div>
+    <div class="pf-skip-video-panel" role="dialog" aria-modal="true" aria-labelledby="pfTrialClassifyTitle">
+      <h2 id="pfTrialClassifyTitle">Your 30 minute test is running</h2>
+      <p class="pf-skip-video-lead">
+        Because you are not signed in, <strong>you will have to classify sites
+        yourself until you sign in.</strong> Explore all features right now.
+        Create a free account at any time to permanently save your data,
+        training history, and custom settings.
+      </p>
+      <button type="button" id="pfTrialClassifyGotIt" class="pf-skip-video-gotit">Got it</button>
     </div>
   </div>
 

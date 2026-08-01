@@ -112,11 +112,14 @@
             }
             .ring {
               position: absolute;
-              inset: 0;
+              /* v83: matched to .pf-progress-ring so the fullscreen/iframe
+                 fallback indicator is the same size as the normal one —
+                 outer radius 15, opaque from 11, under the 11.5 button. */
+              inset: 3px;
               border-radius: 50%;
               background: conic-gradient(#28a745 0deg, #28a745 0deg, rgba(40,167,69,0.18) 0deg, rgba(40,167,69,0.18) 360deg);
-              -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6.5px), #000 calc(100% - 5.5px));
-                      mask: radial-gradient(farthest-side, transparent calc(100% - 6.5px), #000 calc(100% - 5.5px));
+              -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+                      mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
               pointer-events: none;
             }
             .btn {
@@ -1462,20 +1465,30 @@
       }
       .pf-progress-ring {
         position: absolute;
-        inset: 0;
+        /* v83 (user spec "make the green and gray circle smaller/skinnier").
+           Geometry, since it is easy to break:
+             .pf-btn-stack is 36x36, so its centre is at 18,18 and inset:0
+             gave the ring an outer radius of 18. .pf-btn is 23px at 6.5,6.5
+             — radius 11.5, same centre.
+             Was: outer 18, mask opaque from radius 10  -> 6.5px of ring
+                  visible outside the button.
+             Now: inset 3px -> outer 15, mask opaque from radius 11
+                  -> 3.5px visible. Roughly half as thick and 3px smaller
+                  all round.
+           The opaque inner edge (11) MUST stay under the button radius
+           (11.5). The button sits at z-index 2 and covers the overlap; if
+           the inner edge moves outside 11.5 a hairline gap appears between
+           ring and button, which is the bug the old comment here warned
+           about. */
+        inset: 3px;
         border-radius: 50%;
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.2s ease;
         transform: none !important;
         animation: none !important;
-        /* Inner cutout shifted inward so the ring's full-opacity inner edge
-           sits at radius ~10px — beneath the button (radius 11.5). The
-           button (z-index:2) covers the overlap, leaving NO visible gap
-           between ring and button. Previously the cutout was at 11.5 with
-           a 1px feather, creating a hairline visible gap. */
-        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 8px));
-        mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 8px));
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+        mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
       }
       .pf-progress-ring.pf-visible {
         opacity: 1;
@@ -1633,6 +1646,69 @@
         z-index: 5;
       }
       .pf-hold-hint.pf-visible { opacity: 1; }
+      /* ── v83 post-onboarding button walkthrough ─────────────────────────
+         Replaces the old in-dashboard "Floating button" tutorial step, which
+         demoed a FAKE button. This coaches the user on the REAL one. Sits
+         above the button, wide enough to read, and is the only element here
+         with pointer-events since it owns a Skip control. */
+      .pf-coach {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 12px);
+        width: 250px;
+        font-family: -apple-system, system-ui, sans-serif;
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: #1f2430;
+        background: #fff;
+        border: 1px solid #d8d0f0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 14px 40px rgba(20, 14, 45, 0.28);
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 0.22s ease, transform 0.22s ease;
+        pointer-events: none;
+        z-index: 8;
+      }
+      .pf-coach.pf-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+      .pf-coach-step {
+        display: block;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #7a6fa8;
+        margin-bottom: 4px;
+      }
+      .pf-coach-title { display: block; font-weight: 700; margin-bottom: 4px; }
+      .pf-coach-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .pf-coach-skip {
+        border: none;
+        background: transparent;
+        color: #6b7280;
+        font: inherit;
+        font-size: 11.5px;
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 6px;
+      }
+      .pf-coach-skip:hover { background: #f3f4f6; color: #1f2430; }
+      /* Pulse the button itself so the eye goes to it, not just the card. */
+      .pf-btn-stack.pf-coach-target { animation: pfCoachPulse 1.6s ease-in-out infinite; }
+      @keyframes pfCoachPulse {
+        0%, 100% { filter: drop-shadow(0 2px 7px rgba(0,0,0,0.28)); }
+        50% { filter: drop-shadow(0 2px 7px rgba(0,0,0,0.28)) drop-shadow(0 0 12px rgba(91,75,159,0.85)); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pf-btn-stack.pf-coach-target { animation: none; }
+        .pf-coach { transition: none; }
+      }
       .pf-unreadable-badge {
         position: absolute;
         top: -4px;
@@ -1756,7 +1832,20 @@
       }
     </style>
     <div class="pf-wrap pf-boot-hide">
-      <div class="pf-hold-hint" id="pfHoldHint">Timer active. Stop or pause it from the dashboard first</div>
+      <!-- v83 (user spec): the "stop the work timer to do this" hint is
+           removed. Element kept because showHoldBlockedHint targets it for
+           other messages; it simply starts empty. -->
+      <div class="pf-hold-hint" id="pfHoldHint"></div>
+      <!-- v83: post-onboarding coach card. Hidden unless the walkthrough is
+           armed; see pfCoachStart / pfCoachAdvance below. -->
+      <div class="pf-coach" id="pfCoach" role="status" aria-live="polite" hidden>
+        <span class="pf-coach-step" id="pfCoachStep">Step 1 of 2</span>
+        <span class="pf-coach-title" id="pfCoachTitle">This is your focus button</span>
+        <span id="pfCoachBody">It lives on every page. Hold it for 2 seconds to turn the tab closer on.</span>
+        <div class="pf-coach-actions">
+          <button type="button" class="pf-coach-skip" id="pfCoachSkip">Skip</button>
+        </div>
+      </div>
       <div class="pf-indicator-stack">
         <div id="pf-closer-countdown" class="pf-hidden">
           <div class="pf-countdown-label" id="pfCountdownLabel">Break</div>
@@ -2321,6 +2410,149 @@
       clearInterval(focusDirectTickInterval);
       focusDirectTickInterval = null;
     }
+  }
+
+  // ── v83 post-onboarding button walkthrough ──────────────────────────────
+  // Two stages only (user spec: "the first two things ... not the last timer
+  // one"): hold to turn the closer ON, then hold to turn it back OFF. It
+  // coaches the REAL button, so there is no mock state to keep in sync — we
+  // just watch for the genuine hold completing and advance.
+  const PF_COACH_FLAG = 'pfButtonWalkthroughPending';
+  // 0 = not running, 1 = awaiting hold ON, 2 = awaiting hold OFF,
+  // 3 = showing the double-click tip (dismissed by Got it, not by a hold).
+  let pfCoachStage = 0;
+
+  function pfCoachEls() {
+    const root = shadow || null;
+    if (!root) return null;
+    const card = root.getElementById('pfCoach');
+    if (!card) return null;
+    return {
+      card,
+      step: root.getElementById('pfCoachStep'),
+      title: root.getElementById('pfCoachTitle'),
+      body: root.getElementById('pfCoachBody'),
+      skip: root.getElementById('pfCoachSkip'),
+      stack: root.querySelector('.pf-btn-stack')
+    };
+  }
+
+  /**
+   * v83 (user spec): during the 30-minute test the closer has nothing to act
+   * on — classification is fully local and the user has not labelled anything
+   * yet — so holding the button turns on a feature that visibly does nothing.
+   * Say so rather than letting them conclude it is broken.
+   *
+   * Signed in => no note. Signed out with a live trial => note. Read straight
+   * from storage: pfSession is written on sign-in, pfTrialState by the worker.
+   */
+  async function pfCoachTrialNote() {
+    try {
+      const s = await chrome.storage.local.get(['pfSession', 'pfTrialState']);
+      if (s?.pfSession?.access_token) return null;
+      const t = s?.pfTrialState;
+      const inTrial = !!t && t.consumed !== true && Number(t.startedAt) > 0;
+      if (!inTrial) return null;
+      return 'This will not do anything until you classify sites yourself or sign in.';
+    } catch (_) { return null; }
+  }
+
+  function pfCoachRender(stage) {
+    const el = pfCoachEls();
+    if (!el) return;
+    // Append (or clear) the trial caveat under the stage copy.
+    void pfCoachTrialNote().then((note) => {
+      const card = el.card;
+      let n = card.querySelector('.pf-coach-trial');
+      if (!note) { n?.remove(); return; }
+      if (!n) {
+        n = document.createElement('span');
+        n.className = 'pf-coach-trial';
+        n.style.cssText = 'display:block;margin-top:8px;padding:7px 9px;'
+          + 'border-radius:8px;background:#fff4e5;border:1px solid #f0d3a0;'
+          + 'color:#8a5a00;font-size:11.5px;line-height:1.4;';
+        el.body.insertAdjacentElement('afterend', n);
+      }
+      n.textContent = note;
+    });
+    if (stage === 1) {
+      el.step.textContent = 'Step 1 of 3';
+      el.title.textContent = 'This is your focus button';
+      el.body.textContent = 'It sits on every page. Hold it for 2 seconds to turn the tab closer on.';
+    } else if (stage === 2) {
+      el.step.textContent = 'Step 2 of 3';
+      el.title.textContent = 'Closer is on';
+      el.body.textContent = 'Unproductive tabs will now close when you hit your limit. Hold the button for 5 seconds to turn it back off.';
+    } else {
+      // v83 (user spec): the double-click gesture is invisible otherwise —
+      // nothing on the button hints that it opens anything.
+      el.step.textContent = 'Step 3 of 3';
+      el.title.textContent = 'Double-click for quick settings';
+      el.body.textContent = 'Double-click the button any time to open your quick settings. While a timer is running you get the full screen timer instead.';
+      if (el.skip) el.skip.textContent = 'Got it';
+    }
+    el.card.hidden = false;
+    el.stack?.classList.add('pf-coach-target');
+    requestAnimationFrame(() => el.card.classList.add('pf-visible'));
+  }
+
+  function pfCoachEnd() {
+    pfCoachStage = 0;
+    const el = pfCoachEls();
+    if (el) {
+      el.card.classList.remove('pf-visible');
+      el.stack?.classList.remove('pf-coach-target');
+      setTimeout(() => { if (el.card) el.card.hidden = true; }, 240);
+    }
+    try {
+      chrome.runtime.sendMessage({ action: 'pfButtonWalkthroughDone' });
+    } catch (_) { /* worker asleep — the flag also clears on next arm */ }
+  }
+
+  /** Called from runHoldAnimation the moment a real hold completes. */
+  function pfCoachOnHoldComplete(direction) {
+    if (!pfCoachStage) return;
+    if (pfCoachStage === 1 && direction === 'on') {
+      pfCoachStage = 2;
+      pfCoachRender(2);
+    } else if (pfCoachStage === 2 && direction === 'off') {
+      // Stage 3 is not hold-driven — it ends on the Got it button.
+      pfCoachStage = 3;
+      pfCoachRender(3);
+    }
+  }
+
+  let pfCoachClaimAsked = false;
+
+  async function pfCoachMaybeStart() {
+    try {
+      // Only on real pages with a real button, and only once.
+      if (pfCoachStage || pfCoachClaimAsked) return;
+      if (!/^https?:/i.test(location.href)) return;
+      const s = await chrome.storage.local.get(PF_COACH_FLAG);
+      if (s?.[PF_COACH_FLAG] !== true) return;
+      // Ask the worker whether THIS tab owns the walkthrough. Every open tab
+      // sees the pending flag, so without this each one drew its own card
+      // (user report: "it shows the tutorial steps on every open site").
+      // The worker decides from sender.tab.id — a tab cannot read its own id,
+      // and cannot claim someone else's.
+      pfCoachClaimAsked = true;
+      const res = await chrome.runtime
+        .sendMessage({ action: 'pfClaimButtonWalkthrough' })
+        .catch(() => null);
+      if (res?.allowed !== true) return;
+      const el = pfCoachEls();
+      if (!el) return;
+      pfCoachStage = 1;
+      pfCoachRender(1);
+      // Not { once: true }: the button is relabelled to "Got it" on stage 3
+      // and must still work there.
+      el.skip?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pfCoachEnd();
+      });
+    } catch (_) { /* never block the indicator on this */ }
   }
 
   function isHoldInProgress() {
@@ -3419,6 +3651,9 @@
           'targetEnabled:', targetEnabled);
       }
       if (isAutoHidden) showButtonAfterAutoHide();
+      // v83: advance the post-onboarding walkthrough off the REAL hold, so
+      // the coaching can never disagree with what the button actually did.
+      try { pfCoachOnHoldComplete(holdDirection); } catch (_) { /* non-critical */ }
       holdCompletedAt = Date.now();
       holdCompletedTargetEnabled = targetEnabled;
       // Snapshot the PREVIOUS state BEFORE mutating currentState, so render's
@@ -3487,12 +3722,8 @@
       pfFsLastTapAt = 0;
       // Works for EVERY countdown the pill can show — wall-clock timers and
       // advanced earn/spend alike (pfFsHasTimerSource covers both).
-      if (pfFsHasTimerSource()) {
-        if (e) e.preventDefault();
-        openFocusFullscreen();
-        return;
-      }
-      showHoldBlockedHint('Start a timer first, then double-click for fullscreen');
+      if (e) e.preventDefault();
+      pfHandleDoubleTap();
       return;
     }
     pfFsLastTapAt = tapNow;
@@ -3527,10 +3758,19 @@
         } catch (_) { /* worker unavailable — hint stays */ }
       } else if (mode === 'break') {
         showHoldBlockedHint('Break time left — turn off notifications to stop this');
-      } else if (mode === 'study') {
-        showHoldBlockedHint('Stop the Work/Study timer to use this');
       } else {
-        showHoldBlockedHint('Stop the timer to use this');
+        // v83 (user spec: remove "stop the work timer to do this"). The
+        // work/study and generic messages are gone. The hold is still
+        // blocked while a timer runs — that exclusivity lives in the worker,
+        // not here — so this must NOT be silent, or the gesture just dies
+        // with no explanation. Left as a bare pulse of the button instead of
+        // a sentence telling them to stop their timer.
+        if (btnStack) {
+          btnStack.classList.remove('pf-holding');
+          void btnStack.offsetWidth;
+          btnStack.classList.add('pf-holding');
+          setTimeout(() => btnStack.classList.remove('pf-holding'), 220);
+        }
       }
       return;
     }
@@ -3613,12 +3853,664 @@
       // branch calls preventDefault). openFocusFullscreen is idempotent.
       e.preventDefault();
       e.stopPropagation();
-      if (!pfFsHasTimerSource()) {
-        showHoldBlockedHint('Start a timer first, then double-click for fullscreen');
-        return;
-      }
-      openFocusFullscreen();
+      pfHandleDoubleTap();
     });
+  }
+
+  // ── v83: quick panel ──────────────────────────────────────────────────────
+  // A far-left drawer styled like the dashboard's settings drawer, but living
+  // on whatever page you are on. Only the controls worth changing mid-browse:
+  // timers first, then the four Basic ones. Advanced is a link rather than a
+  // copy — those controls are ~300 lines of dashboard markup and duplicating
+  // them here would mean two implementations to keep in step.
+  //
+  // Everything writes through the SAME channels the dashboard uses
+  // (chrome.storage.local for the toggles, pfToggleCloser for the closer), so
+  // there is no second source of truth to drift.
+  const PF_QP_ID = 'pfQuickPanel';
+
+  /** 1s repaint while the panel is open, and the repaint function itself.
+   *  Both live out here because pfCloseQuickPanel has to tear the interval
+   *  down, and the click handlers inside the panel call the refresh. */
+  let pfQpRefreshTimer = null;
+  let pfQpRefreshTimers = async () => {};
+
+  function pfCloseQuickPanel() {
+    const el = shadow.getElementById(PF_QP_ID);
+    if (!el) return;
+    el.style.transform = 'translateX(-100%)';
+    setTimeout(() => el.remove(), 200);
+    document.removeEventListener('keydown', pfQuickPanelKey, true);
+    document.removeEventListener('pointerdown', pfQuickPanelOutside, true);
+    if (pfQpRefreshTimer) { clearInterval(pfQpRefreshTimer); pfQpRefreshTimer = null; }
+  }
+  function pfQuickPanelKey(e) {
+    if (e.key === 'Escape') pfCloseQuickPanel();
+  }
+  /**
+   * v84 (user spec): clicking anywhere outside the drawer shuts it.
+   *
+   * Capture phase so it runs before the page's own handlers, and the floating
+   * button is excluded — a click there already toggles the panel, and letting
+   * both fire would close and immediately reopen it.
+   */
+  function pfQuickPanelOutside(e) {
+    if (!shadow.getElementById(PF_QP_ID)) return;
+    // Same closed-shadow-root problem as the radial menu: composedPath is
+    // truncated at the host out here, so it could never see the panel and
+    // every click INSIDE the drawer would have closed it. The floating
+    // button is under the same host, which is also what we want: it toggles
+    // the panel itself and must not close it from underneath.
+    if (pfEventInsideOurUi(e)) return;
+    pfCloseQuickPanel();
+  }
+
+  function pfQpRow(label, sub) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;'
+      + 'gap:10px;padding:9px 0;border-bottom:1px solid #efedf6;';
+    const t = document.createElement('div');
+    t.style.cssText = 'min-width:0;';
+    const a = document.createElement('div');
+    a.textContent = label;
+    a.style.cssText = 'font-weight:650;font-size:12.5px;color:#1f2430;';
+    t.appendChild(a);
+    if (sub) {
+      const b = document.createElement('div');
+      b.textContent = sub;
+      b.style.cssText = 'font-size:11px;color:#8a8399;margin-top:1px;';
+      t.appendChild(b);
+      // Exposed so the 1s refresh can retitle a row without rebuilding it.
+      row.pfSubEl = b;
+    }
+    row.appendChild(t);
+    return row;
+  }
+
+  /**
+   * A switch whose value the CALLER owns. It was previously storage-backed
+   * with its own key, which meant the closer row wrote to a key nothing read
+   * (pfCloserEnabledMirror) and showed a state unrelated to the real closer.
+   * Now every row passes in the true current value and an async writer.
+   */
+  function pfQpToggle(initialOn, write) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('role', 'switch');
+    btn.style.cssText = 'flex:0 0 auto;width:40px;height:22px;border-radius:22px;'
+      + 'border:none;background:#ccc;position:relative;cursor:pointer;'
+      + 'transition:background .2s ease;';
+    const knob = document.createElement('span');
+    knob.style.cssText = 'position:absolute;top:3px;left:3px;width:16px;height:16px;'
+      + 'border-radius:50%;background:#fff;transition:transform .2s ease;'
+      + 'box-shadow:0 1px 3px rgba(0,0,0,.3);';
+    btn.appendChild(knob);
+    const paint = (on) => {
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      btn.style.background = on ? '#5B4B9F' : '#ccc';
+      knob.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
+    };
+    let value = initialOn === true;
+    btn.addEventListener('click', async () => {
+      value = !value;
+      paint(value);
+      try {
+        await write(value);
+      } catch (_) {
+        // Revert so the switch never shows a state that did not save.
+        value = !value;
+        paint(value);
+      }
+    });
+    paint(value);
+    return btn;
+  }
+
+  async function pfOpenQuickPanel() {
+    pfCloseRadialMenu();
+    if (shadow.getElementById(PF_QP_ID)) { pfCloseQuickPanel(); return; }
+
+    const panel = document.createElement('div');
+    panel.id = PF_QP_ID;
+    panel.style.cssText = 'position:fixed;left:0;top:0;bottom:0;width:min(320px,86vw);'
+      + 'background:#fff;border-right:1px solid #e6e2f2;z-index:2147483000;'
+      + 'box-shadow:18px 0 48px rgba(15,23,42,.22);overflow-y:auto;'
+      + 'padding:18px 16px 28px;box-sizing:border-box;'
+      + 'font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;'
+      + 'color:#1f2430;transform:translateX(-100%);transition:transform .2s ease;'
+      // THE PANEL WAS DEAD WITHOUT THIS. The indicator host is
+      // `pointer-events:none` (so the empty area around the floating button
+      // stays click-through to the page), and that inherits. Every
+      // interactive descendant has to opt back in — .pf-btn-stack and
+      // .pf-coach both do. The panel rendered and animated perfectly and
+      // swallowed nothing, which is exactly why it looked fine but no
+      // button, switch or stepper responded.
+      + 'pointer-events:auto;';
+
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+    const h = document.createElement('div');
+    h.textContent = 'Quick settings';
+    h.style.cssText = 'font-weight:750;font-size:15px;';
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '×';
+    x.setAttribute('aria-label', 'Close');
+    x.style.cssText = 'border:none;background:transparent;font-size:20px;'
+      + 'line-height:1;cursor:pointer;color:#6b7280;padding:2px 6px;';
+    x.addEventListener('click', pfCloseQuickPanel);
+    head.appendChild(h); head.appendChild(x);
+    panel.appendChild(head);
+
+    const section = (label) => {
+      const s = document.createElement('div');
+      s.textContent = label;
+      s.style.cssText = 'margin:16px 0 2px;font-size:10.5px;font-weight:750;'
+        + 'letter-spacing:.06em;text-transform:uppercase;color:#7a6fa8;';
+      panel.appendChild(s);
+    };
+
+    // Real values, read from the worker. currentState only carries indicator
+    // fields — no tab limit, no banked break — so the panel used to render
+    // placeholders and a closer switch wired to nothing.
+    const qs = await chrome.runtime.sendMessage({ action: 'pfGetQuickSettings' })
+      .catch(() => null);
+    const ok = qs?.success === true;
+
+    // ── Timers first (user spec) ────────────────────────────────────────────
+    section('Timers');
+
+    /**
+     * Start/Stop pair for one timer. v84 (user spec): the panel used to be
+     * read-only here — a "Break available" badge and an Open button that
+     * punted to the dashboard.
+     *
+     * Stop is the destructive-looking one, so it gets the red outline; the
+     * two never show at once, matching the dashboard's own state machine.
+     * The worker owns the transition, and the dashboard re-derives its
+     * buttons from storage every second, so stopping here stops it there
+     * too without either surface messaging the other.
+     */
+    const pfQpTimerBtn = (which, initialRunning) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      let running = initialRunning === true;
+      let busy = false;
+      const paint = () => {
+        btn.textContent = running ? 'Stop' : 'Start';
+        btn.style.cssText = 'flex:0 0 auto;padding:5px 14px;border-radius:8px;'
+          + 'font:600 11.5px sans-serif;cursor:pointer;min-width:58px;'
+          + (running
+            ? 'border:1px solid #e3b8b8;background:#fff5f5;color:#a13b3b;'
+            : 'border:1px solid #cfc4ee;background:#5B4B9F;color:#fff;');
+        btn.style.opacity = busy ? '0.6' : '1';
+      };
+      btn.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true;
+        const next = !running;
+        running = next;      // optimistic, same as the dashboard buttons
+        paint();
+        const res = await chrome.runtime.sendMessage({
+          action: 'pfQuickTimer', which, op: next ? 'start' : 'stop'
+        }).catch(() => null);
+        busy = false;
+        if (!res?.success) {
+          // Never leave the button claiming a state that did not take.
+          running = !next;
+          if (res?.decline === 'signed_out') {
+            btn.title = 'Sign in to use timers';
+          }
+        }
+        paint();
+        // Reflect the new state everywhere immediately rather than waiting
+        // up to a second for the next refresh.
+        void pfQpRefreshTimers();
+      });
+      paint();
+      // v84: the 1s refresh drives the button from real worker state, so
+      // clicking "I'm finished" on a cycle popup (or Stop on the dashboard)
+      // flips this back to Start on its own. `busy` is respected so a
+      // refresh landing mid-click cannot stomp the optimistic swap.
+      btn.pfSetRunning = (v) => {
+        if (busy) return;
+        if (running === v) return;
+        running = v;
+        paint();
+      };
+      return btn;
+    };
+
+    /**
+     * v84 (user spec): "make sure that the text below says the time".
+     * Both timer rows show a clock value, never prose and never rounded
+     * minutes. "1 min banked" was the complaint: 59s and 89s both printed
+     * as "1 min", so the number moved in jumps and looked broken.
+     * Hours are only shown once there are any.
+     */
+    const pfClock = (totalSec) => {
+      const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+      return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+    };
+
+    const workSub = (s) => !s
+      ? 'Unavailable'
+      : (s.workRunning ? `${pfClock(s.workRemainingSec)} left` : pfClock(s.workConfiguredSec));
+    const earnSub = (s) => !s
+      ? 'Unavailable'
+      : (s.earnRunning
+        ? `${pfClock(s.earnRemainingSec || s.earnConfiguredSec)} left`
+        : `${pfClock(s.breakAvailableSec)} banked`);
+
+    // v84 (user spec): the "Open" shortcut to the dashboard card is gone.
+    // Start/Stop is the whole point of the row now, and the Advanced section
+    // at the bottom already links out to the dashboard.
+    const workRow = pfQpRow('Work Timer', workSub(ok ? qs : null));
+    const workBtn = pfQpTimerBtn('work', ok && qs.workRunning === true);
+    workRow.appendChild(workBtn);
+    panel.appendChild(workRow);
+
+    // Replaces the old "Break available" row (user spec). While a cycle runs
+    // this shows time remaining in it; otherwise the banked balance, which is
+    // the number the row used to carry.
+    const earnRow = pfQpRow('Advanced Earn / Spend', earnSub(ok ? qs : null));
+    const earnBtn = pfQpTimerBtn('earn', ok && qs.earnRunning === true);
+    earnRow.appendChild(earnBtn);
+    panel.appendChild(earnRow);
+
+    /**
+     * v84 (user spec): "if the user hits I'm finished on the popups, make
+     * sure the quick side bar also stops, but if it's a break timer it
+     * doesn't stop."
+     *
+     * Rather than have every popup notify the panel, the panel re-reads the
+     * worker's real state once a second while it is open. That covers "I'm
+     * finished", Stop on the dashboard, a cycle completing on its own, and
+     * anything added later, with no new wiring. It also makes the clock
+     * subtitles above actually tick.
+     *
+     * The break case needs no special handling and must not get any: a
+     * running break IS a live session, so earnRunning stays true and the row
+     * correctly keeps showing Stop. Hard-coding "ignore break timers" here
+     * would be the thing that broke it.
+     */
+    pfQpRefreshTimers = async () => {
+      if (!shadow.getElementById(PF_QP_ID)) return;
+      const s = await chrome.runtime.sendMessage({ action: 'pfGetQuickSettings' })
+        .catch(() => null);
+      const live = s?.success === true ? s : null;
+      if (workRow.pfSubEl) workRow.pfSubEl.textContent = workSub(live);
+      if (earnRow.pfSubEl) earnRow.pfSubEl.textContent = earnSub(live);
+      workBtn.pfSetRunning?.(live?.workRunning === true);
+      earnBtn.pfSetRunning?.(live?.earnRunning === true);
+    };
+    if (pfQpRefreshTimer) clearInterval(pfQpRefreshTimer);
+    pfQpRefreshTimer = setInterval(() => { void pfQpRefreshTimers(); }, 1000);
+
+    // ── Basic ───────────────────────────────────────────────────────────────
+    section('Basic');
+    const limitRow = pfQpRow('Tab limit', 'Tabs allowed open at once');
+    const limitBox = document.createElement('div');
+    limitBox.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:6px;';
+    const limitVal = document.createElement('span');
+    limitVal.style.cssText = 'min-width:18px;text-align:center;font-weight:700;';
+    limitVal.textContent = ok ? String(qs.tabLimit) : '—';
+    const step = (delta) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = delta > 0 ? '+' : '−';
+      b.style.cssText = 'width:24px;height:24px;border-radius:6px;border:1px solid #d8d0f0;'
+        + 'background:#fff;color:#4A3D85;font:700 13px sans-serif;cursor:pointer;';
+      b.addEventListener('click', () => {
+        const next = Math.max(1, Math.min(20, (Number(limitVal.textContent) || 5) + delta));
+        limitVal.textContent = String(next);
+        chrome.runtime.sendMessage({ action: 'pfSetTabLimit', limit: next }).catch(() => {});
+      });
+      return b;
+    };
+    limitBox.appendChild(step(-1));
+    limitBox.appendChild(limitVal);
+    limitBox.appendChild(step(1));
+    limitRow.appendChild(limitBox);
+    panel.appendChild(limitRow);
+
+    const closerRow = pfQpRow('Unproductive Tab Closer', 'Closes unproductive tabs at your limit');
+    closerRow.appendChild(pfQpToggle(
+      ok ? qs.closerEnabled : currentState?.limitsEnabled === true,
+      // Same message the hold gesture sends — one path, one source of truth.
+      (on) => chrome.runtime.sendMessage({ action: 'pfToggleCloser', enabled: on })
+    ));
+    panel.appendChild(closerRow);
+
+    const reorderRow = pfQpRow('Reorder Tabs', 'Most important stay leftmost');
+    reorderRow.appendChild(pfQpToggle(
+      ok ? qs.reorderEnabled : true,
+      (on) => chrome.storage.local.set({ pfReorderTabsEnabled: on })
+    ));
+    panel.appendChild(reorderRow);
+
+    const groupRow = pfQpRow('Auto group similar tabs', 'Keeps related tabs together');
+    groupRow.appendChild(pfQpToggle(
+      ok ? qs.groupEnabled : false,
+      async (on) => {
+        await chrome.storage.local.set({ pfGroupSimilarTabsEnabled: on });
+        // Apply straight away, same as the dashboard toggle does.
+        if (on) chrome.runtime.sendMessage({ action: 'reorderTabsNow' }).catch(() => {});
+      }
+    ));
+    panel.appendChild(groupRow);
+
+    // ── Advanced (link, not a copy) ─────────────────────────────────────────
+    section('Advanced');
+    const adv = document.createElement('button');
+    adv.type = 'button';
+    adv.textContent = 'Open advanced settings ›';
+    adv.style.cssText = 'width:100%;margin-top:6px;padding:10px 12px;border-radius:9px;'
+      + 'border:1px solid #d8d0f0;background:#faf9fd;color:#4A3D85;'
+      + 'font:600 12.5px sans-serif;text-align:left;cursor:pointer;';
+    adv.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'pfOpenDashboardFocus', drawer: 'advanced' })
+        .catch(() => {});
+      pfCloseQuickPanel();
+    });
+    panel.appendChild(adv);
+
+    shadow.appendChild(panel);
+    requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+    document.addEventListener('keydown', pfQuickPanelKey, true);
+    // Deferred a tick, exactly like the radial menu's outside handler: the
+    // double-tap that opened the panel is still propagating, and binding
+    // synchronously would let it close the panel it just opened.
+    setTimeout(() => {
+      document.addEventListener('pointerdown', pfQuickPanelOutside, true);
+    }, 0);
+  }
+
+  // ── v83: double-tap surfaces ──────────────────────────────────────────────
+  // One entry point for both detectors (the manual double-tap in startHold and
+  // the native dblclick backup), so the two can never disagree.
+  //
+  //   timer running  → radial menu: Full screen timer (top arc),
+  //                    Open quick dashboard (bottom arc)
+  //   no timer       → quick panel drawer on the far left
+  function pfHandleDoubleTap() {
+    if (pfFsHasTimerSource()) pfOpenRadialMenu();
+    else pfOpenQuickPanel();
+  }
+
+  function pfCloseRadialMenu() {
+    shadow.getElementById('pfRadial')?.remove();
+    document.removeEventListener('pointerdown', pfRadialOutside, true);
+  }
+  /**
+   * Did this document-level event originate inside our own UI?
+   *
+   * THE SHADOW ROOT IS `mode: 'closed'` (see hostEl.attachShadow above), and
+   * that is the whole difficulty. Two things people reach for do not work:
+   *
+   *   el.contains(e.target)   — e.target is retargeted to the HOST for any
+   *                             event from inside, so this is always false.
+   *   e.composedPath()        — for a CLOSED root the path is TRUNCATED at
+   *                             the host when the listener lives outside the
+   *                             tree. It never reveals inner nodes either.
+   *
+   * I used composedPath here first and it silently behaved exactly like the
+   * contains() version it replaced, which is why the radial options stayed
+   * unclickable across two "fixes": the outside-handler fired on pointerdown,
+   * removed the menu, and pointerup landed on nothing.
+   *
+   * Retargeting to the host is the only signal available out here, so that is
+   * what we test. Everything of ours lives under this one host.
+   */
+  function pfEventInsideOurUi(e) {
+    if (!hostEl) return false;
+    if (e.target === hostEl) return true;
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    return path.includes(hostEl);
+  }
+
+  function pfRadialOutside(e) {
+    if (!shadow.getElementById('pfRadial')) return;
+    if (pfEventInsideOurUi(e)) return;
+    pfCloseRadialMenu();
+  }
+
+  const PF_SVG_NS = 'http://www.w3.org/2000/svg';
+
+  /**
+   * Two arc segments wrapped around the floating button.
+   *
+   * v84 (user spec): "make them a half semi circle each, not pill boxes that
+   * come off the button." These are now real annular sectors drawn as SVG
+   * paths, so together they form a half ring hugging the button rather than
+   * two lozenges floating on spokes.
+   *
+   * GEOMETRY, and why these numbers:
+   *
+   * The button sits 12px off the bottom-right of the viewport, so the only
+   * direction with room is up and to the left. Angles use the maths
+   * convention (0 = east, counter-clockwise positive) and screen Y is
+   * negated when plotting. Every angle here stays in 90..180, which is the
+   * top-left quadrant, so nothing can be drawn below the button or off the
+   * right edge. That is the constraint the previous version got wrong: it
+   * used 200 and 235, which are BELOW the horizontal, and drew off-screen.
+   *
+   * SIZE, and the chain of consequences (asked for twice: smaller, and more
+   * connected to the dot).
+   *
+   * .pf-btn-stack is 36x36, so the button's radius is exactly 18. The inner
+   * radius is now 18 too: flush against the button with no seam at all. A
+   * 3px gap was tried first and still read as floating.
+   *
+   * Shrinking the outer radius costs label space, and that is the real
+   * constraint here, not taste. Arc length at the mid radius is what has to
+   * hold the text:
+   *     r_mid = (18 + 80) / 2 = 49,  49 degrees -> about 42px of arc.
+   * At 9px, six characters is roughly 30px, so labels are capped at two
+   * short lines of six. That is why they read "Full / screen" rather than
+   * "Full screen timer". tests/host_importance.test.mjs measures this
+   * against the real strings, so lengthening one fails the suite instead of
+   * silently spilling over the sector edge.
+   */
+  const PF_RADIAL_R_OUT = 80;
+  const PF_RADIAL_R_IN = 18;
+  const PF_RADIAL_GAP_DEG = 2.5;
+  const PF_RADIAL_FONT = 9;
+  /** Where the label block sits across the ring, 0 = inner edge, 1 = outer.
+   *  Pushed past the middle because arc width grows with radius and the
+   *  longest word has to fit. */
+  const PF_RADIAL_TEXT_F = 0.66;
+
+  function pfArcSectorPath(cx, cy, rIn, rOut, a0Deg, a1Deg) {
+    const pt = (r, deg) => {
+      const a = (deg * Math.PI) / 180;
+      return [cx + Math.cos(a) * r, cy - Math.sin(a) * r];
+    };
+    const [x0o, y0o] = pt(rOut, a0Deg);
+    const [x1o, y1o] = pt(rOut, a1Deg);
+    const [x1i, y1i] = pt(rIn, a1Deg);
+    const [x0i, y0i] = pt(rIn, a0Deg);
+    const large = Math.abs(a1Deg - a0Deg) > 180 ? 1 : 0;
+    // sweep 0 travels counter-clockwise on screen (increasing angle), which
+    // is the direction a0 -> a1 runs. The inner arc comes back, so sweep 1.
+    return `M ${x0o.toFixed(2)} ${y0o.toFixed(2)}`
+      + ` A ${rOut} ${rOut} 0 ${large} 0 ${x1o.toFixed(2)} ${y1o.toFixed(2)}`
+      + ` L ${x1i.toFixed(2)} ${y1i.toFixed(2)}`
+      + ` A ${rIn} ${rIn} 0 ${large} 1 ${x0i.toFixed(2)} ${y0i.toFixed(2)}`
+      + ' Z';
+  }
+
+  function pfOpenRadialMenu() {
+    if (shadow.getElementById('pfRadial')) { pfCloseRadialMenu(); return; }
+    const host = shadow.querySelector('.pf-btn-stack');
+    if (!host) return;
+
+    const S = PF_RADIAL_R_OUT;
+    const svg = document.createElementNS(PF_SVG_NS, 'svg');
+    svg.id = 'pfRadial';
+    svg.setAttribute('width', String(S * 2));
+    svg.setAttribute('height', String(S * 2));
+    svg.setAttribute('viewBox', `0 0 ${S * 2} ${S * 2}`);
+    // Centred on the button. pointer-events:none on the svg box so the large
+    // transparent square does not swallow clicks on the page behind it; each
+    // path opts back in.
+    svg.style.cssText = 'position:absolute;left:50%;top:50%;'
+      + `transform:translate(-50%,-50%);z-index:9;pointer-events:none;`
+      + 'overflow:visible;opacity:0;transition:opacity .16s ease;';
+
+    // v84 (user report: "a strange box comes up"). Each sector carries
+    // tabindex="0" so it can be reached by keyboard, and Chrome answers a
+    // MOUSE click on a focusable SVG group by drawing the default focus ring
+    // around its BOUNDING BOX — a rectangle enclosing the whole arc, which
+    // looks like a stray box appearing over the page.
+    //
+    // Suppressed for pointer input only. :focus-visible still fires for
+    // keyboard focus, and that case gets a thicker stroke on the arc itself
+    // rather than a rectangle, so tabbing to an option is still obvious.
+    const style = document.createElementNS(PF_SVG_NS, 'style');
+    style.textContent = 'g{outline:none;}'
+      + 'g:focus{outline:none;}'
+      + 'g:focus-visible>path{stroke:#5B4B9F;stroke-width:2;}';
+    svg.appendChild(style);
+
+    const defs = document.createElementNS(PF_SVG_NS, 'defs');
+    const filt = document.createElementNS(PF_SVG_NS, 'filter');
+    filt.setAttribute('id', 'pfRadialShadow');
+    filt.setAttribute('x', '-40%');
+    filt.setAttribute('y', '-40%');
+    filt.setAttribute('width', '180%');
+    filt.setAttribute('height', '180%');
+    const drop = document.createElementNS(PF_SVG_NS, 'feDropShadow');
+    drop.setAttribute('dx', '0');
+    // Tight shadow: at this size a soft one made the ring look like it was
+    // hovering above the button rather than joined to it.
+    drop.setAttribute('dy', '3');
+    drop.setAttribute('stdDeviation', '5');
+    drop.setAttribute('flood-color', 'rgba(20,14,45,0.26)');
+    filt.appendChild(drop);
+    defs.appendChild(filt);
+    svg.appendChild(defs);
+
+    const seg = (lines, a0, a1, onPick) => {
+      const g = document.createElementNS(PF_SVG_NS, 'g');
+      g.style.cursor = 'pointer';
+      g.style.pointerEvents = 'auto';
+      g.setAttribute('role', 'button');
+      g.setAttribute('tabindex', '0');
+      g.setAttribute('aria-label', lines.join(' '));
+
+      const path = document.createElementNS(PF_SVG_NS, 'path');
+      path.setAttribute('d', pfArcSectorPath(
+        S, S, PF_RADIAL_R_IN, PF_RADIAL_R_OUT,
+        a0 + PF_RADIAL_GAP_DEG / 2, a1 - PF_RADIAL_GAP_DEG / 2
+      ));
+      path.setAttribute('fill', '#ffffff');
+      path.setAttribute('stroke', '#d8d0f0');
+      path.setAttribute('stroke-width', '1');
+      path.setAttribute('filter', 'url(#pfRadialShadow)');
+      g.appendChild(path);
+
+      // ONE anchor, lines stacked VERTICALLY beneath it.
+      //
+      // The previous attempt gave each line its own radius to win extra arc
+      // width. It does win the width, but both lines then sit on the same
+      // RAY, so for a sector centred at 114 degrees the second word lands up
+      // and to the left of the first instead of underneath it. The label
+      // read as two scattered words rather than one stacked phrase (user
+      // report: "you messed up the formatting"). Do not reintroduce it.
+      //
+      // Width is bought instead by anchoring the block at 0.66 of the way
+      // out rather than at the mid radius: arc grows with radius, so r=59
+      // gives about 50px against the mid radius's 42px, and "settings" at
+      // 9px needs roughly 40px.
+      const mid = (a0 + a1) / 2;
+      const rad = (mid * Math.PI) / 180;
+      const band = PF_RADIAL_R_OUT - PF_RADIAL_R_IN;
+      const rAnchor = PF_RADIAL_R_IN + band * PF_RADIAL_TEXT_F;
+      const tx = S + Math.cos(rad) * rAnchor;
+      const ty = S - Math.sin(rad) * rAnchor;
+      const lh = PF_RADIAL_FONT * 1.18;
+      const text = document.createElementNS(PF_SVG_NS, 'text');
+      text.setAttribute('x', tx.toFixed(2));
+      text.setAttribute('y', ty.toFixed(2));
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('fill', '#4A3D85');
+      text.setAttribute('font-size', String(PF_RADIAL_FONT));
+      text.setAttribute('font-weight', '600');
+      text.setAttribute('font-family', '-apple-system,system-ui,"Segoe UI",Roboto,sans-serif');
+      text.style.pointerEvents = 'none';
+      lines.forEach((line, i) => {
+        const ts = document.createElementNS(PF_SVG_NS, 'tspan');
+        ts.setAttribute('x', tx.toFixed(2));
+        // Centre the stack on the anchor: lift the first line by half the
+        // block height, then step one line height for each after it.
+        ts.setAttribute('dy', i === 0
+          ? (-((lines.length - 1) * lh) / 2).toFixed(2)
+          : lh.toFixed(2));
+        ts.textContent = line;
+        text.appendChild(ts);
+      });
+      g.appendChild(text);
+
+      // THE OPTIONS WERE UNCLICKABLE (user report, three times). Two causes,
+      // both fixed here, and the fix deliberately does NOT rely on `click`.
+      //
+      // 1. The menu is appended inside .pf-btn-stack, and startHold is bound
+      //    to that element's pointerdown. When a timer is running — the ONLY
+      //    time this menu can be open — startHold takes the isTimerUiActive
+      //    branch and calls preventDefault(). preventDefault on pointerdown
+      //    suppresses the browser's synthesized click, so a click listener
+      //    can never fire here. stopPropagation below keeps the hold logic
+      //    from seeing these events at all.
+      // 2. Even with that, depending on click means depending on the browser
+      //    synthesising one from a pointerdown/pointerup pair that several
+      //    other handlers are also touching. So the action fires on POINTERUP
+      //    directly, which nothing upstream can suppress, and `click` is kept
+      //    only as a fallback for keyboard and assistive tech.
+      //
+      // stopPropagation, never preventDefault: preventDefault here would
+      // recreate cause 1 from the inside.
+      for (const t of ['pointerdown', 'mousedown', 'mouseup']) {
+        g.addEventListener(t, (e) => { e.stopPropagation(); });
+      }
+      let picked = false;
+      const activate = (e) => {
+        if (picked) return;      // pointerup and click both land; run once
+        picked = true;
+        if (e?.stopPropagation) e.stopPropagation();
+        pfCloseRadialMenu();
+        onPick();
+      };
+      g.addEventListener('pointerup', (e) => { e.stopPropagation(); activate(e); });
+      g.addEventListener('click', activate);
+      g.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') activate(e);
+      });
+      g.addEventListener('pointerenter', () => { path.setAttribute('fill', '#f4f1fd'); });
+      g.addEventListener('pointerleave', () => { path.setAttribute('fill', '#ffffff'); });
+      return g;
+    };
+
+    // 90 to 188 degrees: a half ring across the top-left, split in two. The
+    // lower end dips 14px below the button centre at the outer radius, which
+    // still clears the viewport because the button sits 12px up from the
+    // bottom and is 36px tall. Anything past about 195 would be cut off.
+    // Longer word goes on the SECOND line, which sits at the larger radius
+    // and therefore has more arc to play with. See the per-line radius note
+    // in seg(). The test measures each line against its own radius.
+    svg.appendChild(seg(['Full', 'screen'], 90, 139, () => openFocusFullscreen()));
+    svg.appendChild(seg(['Quick', 'settings'], 139, 188, () => pfOpenQuickPanel()));
+
+    host.appendChild(svg);
+    requestAnimationFrame(() => { svg.style.opacity = '1'; });
+    // Capture phase, and deferred a tick so the double-tap that opened this
+    // does not immediately close it.
+    setTimeout(() => document.addEventListener('pointerdown', pfRadialOutside, true), 0);
   }
 
   // ── FULLSCREEN FOCUS TIMER ────────────────────────────────────────────────
@@ -3850,6 +4742,25 @@
       }
     }
   });
+
+  // v83: arm the post-onboarding coach card. Runs once per page load; it
+  // self-checks the storage flag and no-ops unless the tutorial just
+  // finished. Deferred a beat so the button has rendered and the card has
+  // something to point at.
+  setTimeout(() => { void pfCoachMaybeStart(); }, 900);
+  // Also react if the flag flips while this tab is already open — that is
+  // the normal case, since the worker switches TO this tab right after the
+  // dashboard finishes, and the tab may have been loaded long before.
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes[PF_COACH_FLAG]) return;
+      if (changes[PF_COACH_FLAG].newValue !== true) return;
+      // Re-arm the claim guard: this is a genuinely new walkthrough, not the
+      // same one this tab already declined.
+      pfCoachClaimAsked = false;
+      void pfCoachMaybeStart();
+    });
+  } catch (_) { /* storage events unavailable — the timeout above still runs */ }
 
   chrome.runtime.onMessage.addListener((msg) => {
     // Earn-cycle completion confetti — same celebration as the study/break

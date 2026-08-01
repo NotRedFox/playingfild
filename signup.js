@@ -202,13 +202,21 @@ function startVerificationPolling(email, password) {
     console.info(`[pf-poll] attempt ${_pfVerifyPollAttempts}: ok=${ok}, has_token=${!!data?.access_token}, msg=${data?.msg || data?.error_description || 'none'}`);
     if (ok && data?.access_token) {
       stopVerificationPolling();
-      void pfAnalyticsCapture('signup_completed', {});
-      void pfAnalyticsCapture('signin_success', { is_new_account: true });
-      if (data.user?.id) void pfAnalyticsIdentify(data.user.id).catch(() => {});
       // Different account than last time? Previous user's stats are wiped
       // BEFORE this session lands (user spec 2026-07).
       if (data.user?.id) await pfClaimStatsForAccount(data.user.id);
       await chrome.storage.local.set({ pfSession: data });
+      // v83 ORDERING FIX (PostHog signup funnel stuck at 0): these three
+      // calls used to sit ABOVE the pfSession write. capture() in
+      // analytics.js hard-gates on `pfSession.access_token` existing — the
+      // "nothing leaves the device before sign-in" rule — so at the moment
+      // they ran the session was not in storage yet and every one of them
+      // early-returned. signup_completed and signin_success were therefore
+      // dropped 100% of the time, which is exactly what the funnel showed.
+      // They must run AFTER the session lands. Do not move them back up.
+      void pfAnalyticsCapture('signup_completed', {});
+      void pfAnalyticsCapture('signin_success', { is_new_account: true });
+      if (data.user?.id) void pfAnalyticsIdentify(data.user.id).catch(() => {});
       // Pull this account's settings onto this device (cross-device sync).
       try { await chrome.runtime.sendMessage({ action: 'pfSettingsSyncNow', direction: 'pull' }); } catch (_) {}
       await applyPendingUserAgreement(data);
@@ -522,12 +530,15 @@ async function handleSignin() {
     return;
   }
 
-  void pfAnalyticsCapture('signin_success', { is_new_account: false });
-  if (data.user?.id) void pfAnalyticsIdentify(data.user.id).catch(() => {});
   // Different account than last time? Previous user's stats are wiped
   // BEFORE this session lands (user spec 2026-07).
   if (data.user?.id) await pfClaimStatsForAccount(data.user.id);
   await chrome.storage.local.set({ pfSession: data });
+  // v83 ORDERING FIX — same bug as the signup path above. capture() drops
+  // anything sent before pfSession.access_token exists, so firing this
+  // above the write meant signin_success never once reached PostHog.
+  void pfAnalyticsCapture('signin_success', { is_new_account: false });
+  if (data.user?.id) void pfAnalyticsIdentify(data.user.id).catch(() => {});
   // Pull this account's settings onto this device (cross-device sync).
   try { await chrome.runtime.sendMessage({ action: 'pfSettingsSyncNow', direction: 'pull' }); } catch (_) {}
   await applyPendingUserAgreement(data);

@@ -55,6 +55,49 @@ export function prettyHost(host) {
   return String(host || '').replace(/^www\./, '');
 }
 
+/**
+ * Hosts that make a terrible reveal on a Wrapped card (user spec 2026-07).
+ *
+ * The cards pick a top site purely by total seconds, and search engines win
+ * that on volume every time. "google.com was your top tab" is technically
+ * true and completely uninteresting: it is a corridor, not a destination.
+ * Nobody wants their year in review to be a hallway. The point of the card
+ * is to surprise you with where the time actually went.
+ *
+ * MATCHING IS EXACT, on purpose. docs.google.com, mail.google.com and
+ * drive.google.com are among the most interesting things a card can name,
+ * and a suffix match would wipe all of them out. Only the bare search
+ * front door is excluded.
+ */
+const PF_CORRIDOR_HOSTS = new Set([
+  'google.com',
+  'bing.com',
+  'duckduckgo.com',
+  'search.brave.com',
+  'search.yahoo.com',
+  'ecosia.org',
+  'startpage.com',
+  'yandex.com',
+  'baidu.com',
+  'newtab',
+  'localhost'
+]);
+
+export function isCorridorHost(host) {
+  const h = String(host || '').replace(/^www\./, '').toLowerCase();
+  return PF_CORRIDOR_HOSTS.has(h);
+}
+
+/**
+ * Drop corridor hosts, but never hand back an empty list. Someone whose
+ * whole day really was one search engine should still get a card rather
+ * than a blank space.
+ */
+function withoutCorridorHosts(list, getHost) {
+  const kept = list.filter((item) => !isCorridorHost(getHost(item)));
+  return kept.length > 0 ? kept : list;
+}
+
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
@@ -126,14 +169,16 @@ function mergeTopHosts(summaries, limit = 5) {
       totals.set(host, cur);
     }
   }
-  return [...totals.entries()]
+  const ranked = [...totals.entries()]
     .map(([host, v]) => ({
       host,
       sec: v.sec,
       cls: Object.entries(v.cls).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Neutral'
     }))
-    .sort((a, b) => b.sec - a.sec)
-    .slice(0, limit);
+    .sort((a, b) => b.sec - a.sec);
+  // Corridors are stripped BEFORE the slice, so removing google.com promotes
+  // a real site into the list rather than just leaving a shorter one.
+  return withoutCorridorHosts(ranked, (r) => r.host).slice(0, limit);
 }
 
 function mergeHourlyP(summaries) {
@@ -249,7 +294,9 @@ export function dailyInsightCandidates(day, summaryMap, now = Date.now()) {
   const out = [];
   if (!day) return out;
 
-  const topHost = (day.topHosts || [])[0];
+  // Skip past search engines to the first site worth naming. See
+  // isCorridorHost: "google.com was your top tab" is a dud reveal.
+  const topHost = withoutCorridorHosts(day.topHosts || [], (h) => h[0])[0];
   if (topHost && topHost[1] >= 10 * 60) {
     out.push({
       id: 'topTab',

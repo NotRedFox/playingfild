@@ -21,9 +21,10 @@ import {
   coerceAiExcludedBankSitePattern,
   shouldCoerceAiBankSiteToHostOnly
 } from './excluded_hosts.js';
-import { MAX_TAB_LIMIT } from './constants.js';
+import { MAX_TAB_LIMIT, PRIVACY_POLICY_VERSION } from './constants.js';
 import { tabCountsTowardTabLimitShared } from './tab_limit_urls.js';
 import { capture as pfAnalyticsCapture, identify as pfAnalyticsIdentify, optIn as pfAnalyticsOptIn, optOut as pfAnalyticsOptOut } from './analytics.js';
+import { initSessionReplay, stopSessionReplay } from './session_replay.js';
 import {
   buildDailyRecap,
   buildWeeklyRecap,
@@ -104,7 +105,25 @@ let tutorialMockHoldTimer = null;
 let tutorialRunToken = 0;
 const TUTORIAL_COMMIT_TARGET = 'I am fully committed';
 let tutorialCommitProgress = 0;
-const TUTORIAL_MAIN_STEPS = 16;
+// Length of the `steps` ARRAY, including entries flagged `skip: true`. This
+// is index math — `TUTORIAL_MAIN_STEPS - 1` is the Sign-in index — so it must
+// stay equal to steps.length. It is NOT what the user is shown.
+const TUTORIAL_MAIN_STEPS = 6;
+
+// ── What the user is COUNTED as seeing (v83 fix) ─────────────────────────
+// "Name your window" is still in the array (so every hard-coded index stays
+// valid) but carries `skip: true` and is auto-advanced past. Counting it made
+// the header read "Step 4 of 13" right after "Step 2 of 13" and promised one
+// more step than anyone ever sees. These two helpers count only real steps.
+function tutorialVisibleStepCount() {
+  return steps.reduce((n, s) => n + (s?.skip ? 0 : 1), 0);
+}
+/** 1-based position of `idx` among the non-skipped steps. */
+function tutorialDisplayPosition(idx) {
+  let n = 0;
+  for (let i = 0; i <= idx && i < steps.length; i++) if (!steps[i]?.skip) n++;
+  return Math.max(1, n);
+}
 /** YouTube video ID for "How to use >=PlayingFild" (https://youtu.be/Wg6d9-Weca8). */
 const TUTORIAL_SKIP_YOUTUBE_VIDEO_ID = 'Wg6d9-Weca8';
 let tutorialSkipVideoDismissCallback = null;
@@ -213,32 +232,31 @@ function restoreTutorialDevChrome() {
 }
 
 const TUTORIAL_CONTENT_SCALES = new Map([
-  [0, '3x'], [1, 'lg'], [2, 'lg'], [3, 'lg'], [4, 'lg'], [5, 'lg'],
-  [6, 'lg'], [7, 'lg'], [8, 'lg'], [9, 'lg'], [10, 'lg'], [11, 'lg'], [13, '3x'], [14, '3x']
+  [0, 'lg'], [1, 'lg'], [2, 'lg'], [3, 'lg'], [4, '3x']
 ]);
 // Step 6 (idx 5) moved out of BELOW so its tutor box no longer covers the
 // HH:MM:SS input at the bottom of the Break/Unprod timer card.
-const TUTOR_BELOW_TARGET_STEPS = new Set([5, 6, 7, 9, 10]);
+const TUTOR_BELOW_TARGET_STEPS = new Set([3]);
 // (2026-07): idx 9 (Work Timer) used to be ABOVE-target, but the card is tall
 // and pinned high (top:18%) so the box-above path had no room and overlapped
 // the card. Below-target matches its sibling steps (5/6/7/10) and keeps the
 // whole card inside the highlight ring with the box sitting under it.
 const TUTOR_ABOVE_TARGET_STEPS = new Set([]);
-const TUTOR_BESIDE_TARGET_STEPS = new Set([1, 2, 3, 4]);
-const TUTOR_BESIDE_TARGET_RIGHT_STEPS = new Set([11]);
+const TUTOR_BESIDE_TARGET_STEPS = new Set([0, 1]);
+const TUTOR_BESIDE_TARGET_RIGHT_STEPS = new Set([]);
 
 const TUTOR_WIDE_BOX_STEPS = new Set([]);
-const TUTOR_COMPACT_BOX_STEPS = new Set([1]);
-const TUTOR_BESIDE_NAME_STEPS = new Set([2]);
-const TUTOR_BESIDE_MEDIUM_STEPS = new Set([3, 4]);
-const TUTOR_BESIDE_CENTER_Y_STEPS = new Set([2]);
-const TUTOR_BESIDE_ALIGN_TARGET_STEPS = new Set([3, 4]);
+const TUTOR_COMPACT_BOX_STEPS = new Set([0]);
+const TUTOR_BESIDE_NAME_STEPS = new Set([1]);
+const TUTOR_BESIDE_MEDIUM_STEPS = new Set([]);
+const TUTOR_BESIDE_CENTER_Y_STEPS = new Set([1]);
+const TUTOR_BESIDE_ALIGN_TARGET_STEPS = new Set([]);
 const TUTOR_BESIDE_ALIGN_TARGET_Y_OFFSET = -88;
-const TUTOR_EXPANDED_BELOW_STEPS = new Set([7, 9, 10]);
-const TUTOR_STACK_CENTERED_STEPS = new Set([5, 6, 7, 10]);
+const TUTOR_EXPANDED_BELOW_STEPS = new Set([3]);
+const TUTOR_STACK_CENTERED_STEPS = new Set([]);
 const TUTOR_EXPANDED_ABOVE_STEPS = new Set([]);
-const TUTOR_BESIDE_RIGHT_EXPANDED_STEPS = new Set([11]);
-const TUTOR_FLOATING_BTN_BOX_STEPS = new Set([8]);
+const TUTOR_BESIDE_RIGHT_EXPANDED_STEPS = new Set([]);
+const TUTOR_FLOATING_BTN_BOX_STEPS = new Set([]);
 
 function setTutorialContentScale(idx) {
   const box = $('tutorBox');
@@ -363,14 +381,12 @@ function scrollForTutorBelowTarget(targetEl, tutorBox, gap = 28, { pinTargetTop 
 }
 
 function tutorBelowScrollOptions(stepIdx) {
-  if (stepIdx === 5) return { pinTargetTop: true, targetTopGap: 44 };
-  if (stepIdx === 6) return { pinTargetTop: true, targetTopGap: 36 };
+  // v83: the ranking + wipe entries were removed with their steps.
+  void stepIdx;
   return {};
 }
 
 function stackCenteredLayoutGap(stepIdx) {
-  if (stepIdx === 6) return 32;
-  if (stepIdx === 7) return 48;  // Closer toggle: larger gap so text box sits lower
   return 28;
 }
 
@@ -515,20 +531,10 @@ function repositionTutorBelowTargetNoScroll(targetEl, tutorBox, gap = 28) {
   };
 }
 
-function scheduleTutorialWipeStepTutorReposition() {
-  if (currentStep !== 6) return;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const target = $('wipeTabTimesContainer');
-      const b = $('tutorBox');
-      if (!target || !b) return;
-      const coords = repositionTutorBelowTargetNoScroll(target, b, 28);
-      if (coords && tutorialSetTutorTarget) {
-        tutorialSetTutorTarget(coords, { animate: true });
-      }
-    });
-  });
-}
+// v83: the "Reset Tab Ranking Scores" (wipe) step was removed from the
+// tutorial, so there is nothing to reposition. Kept as a no-op because this
+// is called from generic reposition/resize paths, not only from that step.
+function scheduleTutorialWipeStepTutorReposition() {}
 
 function scrollTutorialTargetBelowHeader(targetEl, extraGap = 24) {
   if (!targetEl) return;
@@ -576,17 +582,32 @@ function scrollForTutorAboveTarget(targetEl, tutorBox, gap = 80) {
 // "13/16" header (it used to sit much lower — all the negative offsets
 // above were tuned against that old position). With the raised box, -260
 // dragged the chart up OVER the box to the very top of the screen (user
-// report: "major glitch, the graph moves up to the top"). The chart now
-// hangs a small gap BELOW the box: desiredTop = topReserve + boxH + 12.
-const TUTOR_PVU_CHART_GAP = 12;
+// report: "major glitch, the graph moves up to the top"). +12 (below the
+// box) then sank the chart's BOTTOM past the viewport (user report v64:
+// "show the black space a bit below it"). v67: fixed lift of 160px above
+// the below-the-box spot — the chart top tucks under the opaque tutor box,
+// the bottom clears with black space, and the value is CONSTANT so every
+// settle pass agrees and nothing hops (v66/v67 glitch reports).
+const TUTOR_PVU_CHART_GAP = -148;
 
 function scrollTutorialHighlightBelowHeaderTutor(targetEl, tutorBox, gap = 12) {
   if (!targetEl || !tutorBox) return;
   const topReserve = getTutorialTopReserve();
   const { height: boxH } = getTutorBoxLayoutSize(tutorBox);
+  const rect = targetEl.getBoundingClientRect();
+  // v67 (user: "still glitching"): v64/v65 derived this target from the
+  // card's measured height — but that height GROWS while the chart
+  // renders, so the entry/300ms/1000ms passes chased a moving number and
+  // the page hopped once per pass. No guard fixes a target that moves.
+  // Back to the height-INDEPENDENT formula the step always had (every pass
+  // computes the identical number, so passes 2 and 3 are natural no-ops);
+  // the "show black space below" lift now lives in the tuned constant
+  // TUTOR_PVU_CHART_GAP instead of a dynamic clamp.
   const desiredTargetTop = topReserve + boxH + gap;
-  const targetTop = targetEl.getBoundingClientRect().top;
-  const delta = targetTop - desiredTargetTop;
+  const delta = rect.top - desiredTargetTop;
+  // Stand-down guard: identical targets make repeat passes compute ~0
+  // delta; skip sub-14px corrections so nothing ever micro-hops.
+  if (Math.abs(delta) < 14) return;
   tutorialScrollBy(delta);
 }
 
@@ -600,6 +621,14 @@ function scrollTutorialHighlightBelowHeaderTutor(targetEl, tutorBox, gap = 12) {
  * !important styles that beat any late/missing CSS class application.
  */
 function pfEnsureTabLimitStepVisible(target) {
+  // v83: DISABLED. This existed to force #tabLimitWrapper visible when the
+  // tab-limit step failed to pin it. The step no longer uses that widget at
+  // all — the picker is inside the tutor card — so "forcing it visible" now
+  // produces exactly the stray floating box the user reported. Kept as a
+  // no-op because the diagnostic below is worth having if the widget ever
+  // gets pinned again.
+  return;
+  // eslint-disable-next-line no-unreachable
   try {
     const r = target.getBoundingClientRect();
     const cs = getComputedStyle(target);
@@ -686,47 +715,12 @@ const PF_TUTOR_RING_SHADOW = '0 0 0 3px rgba(91,75,159,0.30), 0 0 44px rgba(91,7
 // Per-step pin configs. Values mirror each step's (now bypassed) CSS pin
 // rule so the on-screen result is identical to when the cascade worked.
 const PF_TUTORIAL_STEP_PINS = {
-  3: { id: 'tabLimitWrapper', stepClass: 'tutorial-step-tablimit', styles: {
-    position: 'fixed', top: '36%', left: '80%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    display: 'flex', 'align-items': 'center', gap: '8px', padding: '8px 12px',
-    background: '#fff', 'border-radius': '10px', 'box-shadow': PF_TUTOR_RING_SHADOW,
-    'pointer-events': 'auto'
-  } },
-  5: { id: 'rankingModeMain', stepClass: 'tutorial-step-ranking', styles: {
-    // Mirrors body.tutorial-step-ranking #rankingModeMain + the ranking
-    // highlight skin (padding/bg/radius) from stats.html.
-    position: 'fixed', top: '22%', left: '50%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    width: 'min(520px, 92vw)', 'max-height': '60vh', overflow: 'auto',
-    padding: '22px 26px', 'min-height': '148px', background: '#fff',
-    'border-radius': '12px', color: '#333', 'box-shadow': PF_TUTOR_RING_SHADOW,
-    'pointer-events': 'auto'
-  } },
-  11: { id: 'themeCarousel', stepClass: 'tutorial-step-theme', styles: {
-    // Theme step (2026-07, "now step 12 broken with the same issue"): the
-    // LAST step still relying on the CSS-class pin — the exact mechanism
-    // that failed on first runs for every other pinned step. Mirrors the
-    // body.tutorial-step-theme #themeCarousel rule; display:flex is the
-    // carousel's natural layout.
-    position: 'fixed', top: '16%', left: '28%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    display: 'flex', 'max-width': '58vw', 'max-height': '70vh',
-    overflow: 'auto', 'pointer-events': 'auto'
-  } },
-  10: { id: 'unprodReminderDropdown', stepClass: 'tutorial-step-study', styles: {
-    // Reminders step (2026-07, "step 11 super broken, going step by step"):
-    // the LAST scroll-based stack step. Its tall card made every settle
-    // pass re-scroll visibly and squeezed the tutor box until Next hid
-    // below a scrollbar. Pinned like its siblings: card scrolls INSIDE
-    // 44vh, box sits below with guaranteed room.
-    position: 'fixed', top: '14%', left: '50%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    width: 'min(720px, 94vw)', 'max-height': '44vh', overflow: 'auto',
-    padding: '14px 18px', background: '#fff', 'border-radius': '12px',
-    color: '#333', 'box-shadow': PF_TUTOR_RING_SHADOW, 'pointer-events': 'auto'
-  } },
-  9: { id: 'studyBreakBlock', stepClass: 'tutorial-step-work', styles: {
+  // v83 (user spec): the tab-limit step no longer pins #tabLimitWrapper out
+  // on the right. The number is chosen from a <select> inside the tutor
+  // card itself (pfBuildInlineLimitPicker), which mirrors into the real
+  // #maxTabLimit input — so there is nothing left to pin, and the step is
+  // targetless/centred like the intro steps.
+  3: { id: 'studyBreakBlock', stepClass: 'tutorial-step-work', styles: {
     // Work-Timer step (2026-07, "step 10 highlight not showing"): the step
     // relied on scrolling the card DOWN below the tutor box, but a short
     // first-run page can't scroll — the box landed ON the card and buried
@@ -760,32 +754,10 @@ const PF_TUTORIAL_STEP_PINS = {
     width: 'min(960px, 97vw)', 'max-height': '70vh', overflow: 'auto',
     padding: '18px 18px', background: '#fff', 'border-radius': '12px',
     color: '#333', 'box-shadow': PF_TUTOR_RING_SHADOW, 'pointer-events': 'auto'
-  } },
-  7: { id: 'enforcerToggleRow', stepClass: 'tutorial-step-closer', styles: {
-    // Closer-toggle step (2026-07): was scroll-centered in-flow, and its
-    // entry flash kept coming back — pin it like ranking/wipe so there is
-    // NO scroll dependency at all. White card + ring, box sits below.
-    position: 'fixed', top: '24%', left: '50%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    width: 'min(560px, 92vw)', 'max-height': '52vh', overflow: 'auto',
-    padding: '20px 24px', background: '#fff', 'border-radius': '12px',
-    color: '#333', 'box-shadow': PF_TUTOR_RING_SHADOW, 'pointer-events': 'auto'
-  } },
-  6: { id: 'wipeTabTimesContainer', stepClass: 'tutorial-step-wipe', styles: {
-    // WHITE CARD look (2026-07 screenshot fix): the intended card styling
-    // lived under `#rankingModeContainer #wipeTabTimesContainer.tutor-…`
-    // ancestor selectors, which the portal severs — so the pin must carry
-    // the card look itself. Values copied 1:1 from that rule.
-    position: 'fixed', top: '22%', left: '50%', right: 'auto', bottom: 'auto',
-    margin: '0', transform: 'translateX(-50%)', 'z-index': '10005',
-    width: 'min(520px, 92vw)', 'max-height': '60vh', overflow: 'auto',
-    padding: '20px 22px 18px', background: '#fff', 'border-radius': '12px',
-    color: '#333', border: '1px solid rgba(0, 0, 0, 0.1)', 'min-height': '84px',
-    'box-shadow': '0 0 0 3px rgba(255,255,255,0.6), 0 0 0 10px rgba(91,75,159,0.30), 0 0 30px rgba(91,75,159,0.45)',
-    'pointer-events': 'auto'
   } }
 };
-PF_TUTORIAL_STEP_PINS[4] = PF_TUTORIAL_STEP_PINS[3]; // both tab-limit steps share one pin
+// v83: the second tab-limit step ("Apply your limit") was removed, so
+// there is no longer a pair sharing pin 3.
 
 const pfTutorialPortalMap = new Map(); // id → { parent, next, style }
 
@@ -845,12 +817,47 @@ function pfClearTabLimitWatchdogStyles() {
   pfPortalUnpinAllTutorialTargets();
 }
 
+// ── v69: step-13 entry veil ────────────────────────────────────────────────
+// The chart step's settle scroll happens BEHIND this full-screen cover, so
+// no motion is ever visible: veil up at entry (same tick, before paint),
+// one authoritative scroll at 300ms, then the veil fades out over the
+// already-settled layout. Safety timer guarantees it can never stick.
+let pfStep13VeilSafetyTimer = null;
+
+function pfShowStep13Veil() {
+  const v = document.getElementById('pfStep13Veil');
+  if (!v) return;
+  v.classList.remove('pf-veil-fading');
+  v.hidden = false;
+  if (pfStep13VeilSafetyTimer) clearTimeout(pfStep13VeilSafetyTimer);
+  pfStep13VeilSafetyTimer = setTimeout(() => {
+    pfStep13VeilSafetyTimer = null;
+    pfFadeStep13Veil(); // backstop — never let the veil strand the user
+  }, 1600);
+}
+
+function pfFadeStep13Veil() {
+  const v = document.getElementById('pfStep13Veil');
+  if (!v || v.hidden) return;
+  if (pfStep13VeilSafetyTimer) { clearTimeout(pfStep13VeilSafetyTimer); pfStep13VeilSafetyTimer = null; }
+  v.classList.add('pf-veil-fading');
+  setTimeout(() => { v.hidden = true; v.classList.remove('pf-veil-fading'); }, 260);
+}
+
+function pfHideStep13VeilInstant() {
+  const v = document.getElementById('pfStep13Veil');
+  if (!v) return;
+  if (pfStep13VeilSafetyTimer) { clearTimeout(pfStep13VeilSafetyTimer); pfStep13VeilSafetyTimer = null; }
+  v.hidden = true;
+  v.classList.remove('pf-veil-fading');
+}
+
 function refreshTutorialStepScroll() {
   if (Date.now() < pfTutorRepositionMuteUntil) return; // theme-swap window
   const idx = currentStep;
   const target = steps[idx]?.target ? $(steps[idx].target) : null;
   const b = $('tutorBox');
-  if (idx === 12 && target && b) {
+  if (false) { // v83: Weekly productivity step removed
     scrollTutorialHighlightBelowHeaderTutor(target, b, TUTOR_PVU_CHART_GAP);
     return;
   }
@@ -928,7 +935,13 @@ function centerTutorBoxY(boxH, screenH = window.innerHeight) {
   const bottomPad = getTutorialBottomPad();
   const availableH = Math.max(0, screenH - topReserve - bottomPad);
   if (boxH >= availableH - 4) return topReserve;
-  return topReserve + Math.max(0, (availableH - boxH) / 2);
+  const slack = Math.max(0, availableH - boxH);
+  // v83 (user spec: "move the sign in box higher up the screen"). The
+  // sign-in step's box is the tallest in the tutorial — dead-centred it sat
+  // low enough that the buttons crowded the bottom of the viewport. Seat it
+  // in the upper third instead. Every other centred step is unchanged.
+  const biasToTop = currentStep === TUTORIAL_MAIN_STEPS - 1;
+  return topReserve + (biasToTop ? slack * 0.18 : slack / 2);
 }
 
 function getTutorBoxLayoutSize(box) {
@@ -998,6 +1011,9 @@ function computeTutorBoxCoordsAvoidingTarget(tr, boxW, boxH, screenW, screenH, p
 }
 const TUTOR_BOX_GLIDE_MS = 300;
 const TUTOR_BOX_GLIDE_EASING = 'ease-out';
+// v83: retained ONLY because the step-3/4 reset blocks and the persisted
+// `tabLimitLockState` key still write it. Nothing gates on it any more —
+// the lock button it mirrored no longer exists. Do not add new reads.
 let tutorialTabLimitLocked = false;
 let tutorialTabLimitReadyForConfirm = false;
 let tutorialTabLimitUserEdited = false;
@@ -1027,9 +1043,12 @@ const postSigninDataModeStep = {
   unlock: 'always'
 };
 
+// v83 (user spec): the post-sign-in closing screen. Was "Stick with it" plus
+// a paragraph warning the extension might feel annoying — an odd note to end
+// on, and it duplicated the sign-in step's own copy.
 const postSigninStep = {
-  title: 'Stick with it',
-  text: "This extension might feel annoying at first. After using it for a day or two, you'll start feeling like you have more mental bandwidth than you used to.",
+  title: "You're all set!",
+  text: 'Get ready to reclaim your mental focus. Your new, distraction-free workspace starts now.',
   target: null,
   unlock: 'finish'
 };
@@ -1038,19 +1057,14 @@ const TUTORIAL_NOTEBOOK_SELECTED_TEXT = 'You can change and see the full themes 
 
 const steps = [
   {
-    title: 'Quick tutorial',
-    text: 'This is a quick tutorial, about 5/10 minutes. The time you invest in this extension will save you time and mental bandwidth. But it only works if you actually want to commit to using it fully.',
-    target: null,
-    tab: 'window',
-    unlock: 'always',
-    boxSize: 'large'
-  },
-  {
     title: 'Feedback cards',
-    text: "A small card like this will sometimes appear at the bottom right of pages. Try clicking 'Yes' on the example to the right.",
+    // v83 (user spec): the demo card still shows, but Next is live from the
+    // moment the step opens — no click required. Was 'productive-click',
+    // which disabled Next until they pressed Yes on the example.
+    text: 'A small card like this will sometimes appear at the bottom right of pages. It asks whether the page was productive, and your answer teaches the classifier.',
     target: 'pf-tutorial-demo-card',
     tab: 'window',
-    unlock: 'productive-click',
+    unlock: 'always',
     boxPosition: 'bottom-right',
     showDemoCard: true
   },
@@ -1070,104 +1084,38 @@ const steps = [
   {
     title: 'Tab limit',
     // Tab Limit was moved to the far right of the header row (opposite the
-    // streak). Anchor the tutor box on the LEFT so it doesn't clip the right
-    // edge of the viewport.
-    text: 'This is your tab limit: <b>how many tabs can stay open at once before older ones get auto-closed</b>. Set a number that feels comfortable. Press the lock to unlock the Confirm button in the next step.',
-    target: 'tabLimitWrapper',
-    tab: 'window',
-    unlock: 'tab-limit-lock-cycle',
-    boxPosition: 'left'
-  },
-  {
-    title: 'Apply your limit',
-    text: 'Time to rip off the bandaid. Once you click Confirm, <b>all but your first [N] tabs (the ones you have open right now) will be closed.</b> This might be stressful but you can reopen them later if you need.',
-    target: 'tabLimitWrapper',
-    tab: 'window',
-    unlock: 'tab-limit-apply',
-    highlightGreenConfirm: true,
-    boxPosition: 'left'
-  },
-  // 2026-07 user reorder: Work Timer now runs AFTER Floating button, so the
-  // ranking / reset / closer / mock-indicator flow reads first and the timer
-  // sits alongside the Reminders step it pairs with. Old order (index 5→9):
-  // Work Timer → Ranking → Reset → Closer → Floating.
-  // New order            (index 5→9):
-  // Ranking → Reset → Closer → Floating → Work Timer.
-  {
-    title: 'Tab ranking',
-    // Targets the REAL #rankingModeMain — during this step CSS pins it to
-    // the middle of the viewport (body.tutorial-step-ranking rules), so
-    // the user sees the exact live control and their radio choice
-    // persists to the real setting. No fake mockup HTML.
-    text: 'Tabs in this window are ordered by how much you use them. Tabs you spend time on move left, and tabs you ignore move right and close first when you hit your limit.',
-    target: 'rankingModeMain',
+    // v83 (user spec): everything for this step lives INSIDE the card — the
+    // number picker, the counts, and the two choices — so there is no target
+    // to highlight and the box centres like the intro steps. Previously it
+    // pinned the real #tabLimitWrapper out on the right, which split reading
+    // from doing.
+    //
+    // `text` is unused: pfRenderTabLimitChoice builds the whole body, because
+    // the sentence has a live <select> in it and the numbers change as the
+    // user moves it. Kept as a one-line fallback in case that ever throws.
+    text: 'Set how many tabs can stay open at once before older ones get auto-closed.',
+    target: null,
     tab: 'window',
     unlock: 'always'
   },
-  {
-    title: 'Reset Tab Ranking Scores',
-    // Real #wipeTabTimesContainer pinned to viewport center (see body
-    // .tutorial-step-wipe CSS). Gate the Next button on the user
-    // actually flipping the Reset Tab Ranking Scores checkbox on — per
-    // user spec 2026-07 the step should require the interaction.
-    text: 'Reset Tab Ranking Scores clears those scores on a schedule so one tab does not stay at the top forever. Turn it on now to continue.',
-    target: 'wipeTabTimesContainer',
-    tab: 'window',
-    unlock: 'wipe-tab-times-setup'
-  },
-  {
-    title: 'Closer toggle',
-    text: 'This is the toggle for closing unproductive tabs. Turn it on if you want unproductive tabs to be closed. Leave it off if you want them to stay open.',
-    target: 'enforcerToggleRow',
-    tab: 'window',
-    unlock: 'closer-toggle-cycle'
-  },
-  {
-    title: 'Floating button',
-    text: "The floating button on the bottom right of any page also controls this toggle. Try turning it on by holding it for 2 seconds.",
-    target: 'pf-tutorial-mock-indicator',
-    tab: 'window',
-    unlock: 'mock-stage-flow',
-    showMockIndicator: true,
-    boxPosition: 'bottom-right'
-  },
+  // 2026-07 user reorder: Work Timer runs AFTER Floating button so the
+  // closer / mock-indicator flow reads first and the timer sits alongside
+  // the Reminders step it pairs with.
+  // v83 (user spec): the "Tab ranking" and "Reset Tab Ranking Scores" steps
+  // were DELETED from here. Every index-keyed reference in this file was
+  // renumbered in the same pass — old 7→5, 8→6, 9→7, 10→8, 11→9, 12→10,
+  // 13→11, 14→12, 15→13 — and TUTORIAL_MAIN_STEPS went 16→14.
+  // Indices 5→8 are now: Closer toggle → Floating button → Work Timer →
+  // Reminders.
   {
     // Retargeted 2026-07: the standalone Break/Unproductive timer card was
     // removed from the dashboard — Study Break (now directly below the
     // closer) is the break feature users interact with. Moved here (was
     // index 5) to run after the tab-management steps (user spec 2026-07).
     title: 'Work Timer',
-    text: 'This is the Work Timer. Earn break time while you focus on productive tabs, then spend it on unproductive tabs when you need a breather. Your break timer shows on the floating button.',
+    text: 'Earn break time while focusing on productive tabs, then spend it on unproductive ones.',
     target: 'studyBreakBlock',
     tab: 'window',
-    unlock: 'always'
-  },
-  {
-    // Retargeted 2026-07: the standalone Work/Study timer card was removed —
-    // the Reminders panel (attached to Study Break) is the visible feature
-    // in that spot now.
-    title: 'Reminders',
-    text: 'Set a reminder for when you\'ve been on unproductive tabs too long, and choose whether YouTube asks if you want a per-video timer on long videos.',
-    target: 'unprodReminderDropdown',
-    tab: 'window',
-    unlock: 'always'
-  },
-  {
-    // Title carries the question directly (user spec 2026-07 v4) — the
-    // body is now just a soft reassurance that they can swap themes.
-    // Unlock requires a theme selection (user spec 2026-07 v6) — either
-    // Notebook (Student) or Tutorial Background (Professional) counts.
-    title: 'Are you a student or professional?',
-    text: "Pick a theme, you can change it any time.",
-    target: 'themeCarousel',
-    tab: 'customizations',
-    unlock: 'customizations-theme'
-  },
-  {
-    title: 'Weekly productivity',
-    text: 'This is what your stats could look like in a few days. Hover a chart bar to see the daily breakdown appear beside it.',
-    target: 'pvuWeekNavWrap',
-    tab: 'stats',
     unlock: 'always'
   },
   {
@@ -1186,15 +1134,8 @@ const steps = [
     showWrappedCard: true
   },
   {
-    title: 'Final commitment',
-    text: 'Before signing in, type the commitment phrase below to continue.',
-    target: null,
-    tab: 'window',
-    unlock: 'commit-typing'
-  },
-  {
-    title: 'Sign in',
-    text: "This extension can't force you to be more productive. It gives you the tools to stop spiraling, in a way no other extension can.\n\nSign in to begin.",
+    title: "You're all set!",
+    text: 'Get ready to reclaim your mental focus. Your new, distraction free workspace starts now.',
     target: null,
     tab: 'window',
     unlock: 'signin',
@@ -1308,8 +1249,8 @@ async function shouldBlockTutorialTimerStart(mode = 'unprod') {
   if (postSigninMode) return false;
   const session = await chrome.storage.session.get('tutorialActive');
   if (session.tutorialActive !== true) return false;
-  if (mode === 'unprod' && currentStep === 9) return false;
-  if (mode === 'study' && currentStep === 10) return false;
+  if (mode === 'unprod' && currentStep === 3) return false;
+  if (mode === 'study' && false) return false;
   return true;
 }
 
@@ -1380,17 +1321,21 @@ function syncTutorialTutorFontFromTheme(themeId, stepIdx = currentStep) {
   // swap. The font now applies from step 13 (stepIdx >= 12) onward, so
   // the tutor box stays put through the whole theme-picking step and
   // only switches typography once the user has moved past it.
-  const useNotebookFont = themeId === 'notebook' && stepIdx >= 12;
+  // v83 (user spec): onboarding text keeps the DEFAULT formatting all the
+  // way through — no notebook font swap mid-tutorial. Notebook remains the
+  // preselected theme in settings; only the tutor-box typography stopped
+  // changing. Forced false rather than deleted so the swap is one edit away.
+  const useNotebookFont = false;
   document.body.classList.remove('tutorial-customizations-open');
   document.body.classList.toggle('tutorial-notebook-font', useNotebookFont);
-  document.body.classList.toggle('tutorial-late-steps', useNotebookFont && stepIdx >= 13);
+  document.body.classList.toggle('tutorial-late-steps', false);
   ['tutorTitle', 'tutorText', 'tutorProgressNote'].forEach((id) => {
     $(id)?.classList.toggle('tutor-readable-text', useNotebookFont);
   });
 }
 
 async function applyTutorialTutorFont(stepIdx) {
-  if (stepIdx < 11) {
+  if (false) { // v83: theme step removed from onboarding
     clearTutorialTutorFontOverrides();
     return;
   }
@@ -1399,7 +1344,7 @@ async function applyTutorialTutorFont(stepIdx) {
 }
 
 async function handleTutorialNotebookSelect() {
-  if (currentStep !== 11) {
+  if (true) { // v83: theme step removed from onboarding
     await selectTheme('notebook');
     return;
   }
@@ -1425,7 +1370,7 @@ async function handleTutorialBackgroundSelect() {
     triggerTutorialShake($('tutorBox'));
     return;
   }
-  if (currentStep !== 11) {
+  if (true) { // v83: theme step removed from onboarding
     await selectTheme('tutorial_background');
     return;
   }
@@ -1605,7 +1550,11 @@ function revealDashboardAtTop() {
 function updateTutorialProgressBar(stepIdx) {
   const fill = $('tutorialProgressFill');
   if (!fill) return;
-  const pct = Math.max(0, Math.min(100, ((stepIdx + 1) / TUTORIAL_MAIN_STEPS) * 100));
+  // v83: measured in VISIBLE steps, so the bar and the "Step N of M" header
+  // agree and the bar doesn't stall on the skipped entry.
+  const total = tutorialVisibleStepCount();
+  const pos = Math.min(tutorialDisplayPosition(stepIdx), total);
+  const pct = Math.max(0, Math.min(100, (pos / total) * 100));
   fill.style.width = `${pct}%`;
 }
 
@@ -1806,6 +1755,7 @@ let tutorialPvuSampleActive = false;
 
 function buildTutorialPvuSampleLogs() {
   const dayKeys = getLast7StreakDayKeys(0);
+  const prevWeekDayKeys = getLast7StreakDayKeys(1);
   const dailySiteLogs = {};
   const dailyProductiveEngagement = {};
   const hourlySiteLogs = {};
@@ -1905,6 +1855,27 @@ function buildTutorialPvuSampleLogs() {
     );
     dailySiteLogs[dayKey] = hosts;
 
+    // PREVIOUS WEEK, engagement scores only (user report 2026-07 v84: "you
+    // forgot to show the little dropdown text that talks about the difference
+    // between the stats on the example week").
+    //
+    // The "?" dropdown next to Real Productivity ends with a week-on-week
+    // comparison line, and that line is built by comparing this week's total
+    // against last week's. The sample only ever generated ONE week, so last
+    // week's total was 0, realProductivityImprovementPct returns null for a
+    // zero baseline, and the comparison silently never rendered. The example
+    // was therefore missing the one sentence that explains what the numbers
+    // are for.
+    //
+    // Only the SCORES are seeded, never dailySiteLogs. getMaxPvuWeekOffset
+    // reads the site logs, so the back arrow stays disabled and nobody can
+    // navigate into a half-populated week that has a score but no bars.
+    // Totals: 160 this week against 112 last, which renders as 43% more
+    // productive. Deliberately a plausible number rather than a flashy one.
+    const prevWeekScores = [18, 12, 24, 10, 16, 20, 12];
+    const prevKey = prevWeekDayKeys[i];
+    if (prevKey) dailyProductiveEngagement[prevKey] = prevWeekScores[i] || 0;
+
     hourlySiteLogs[dayKey] = {};
     for (let hour = 9; hour <= 17; hour += 1) {
       const factor = hour === 12 ? 0.55 : 1;
@@ -1944,6 +1915,9 @@ function buildTutorialPvuSampleLogs() {
 
 function activateTutorialPvuSample() {
   tutorialPvuSampleActive = true;
+  // Drives the CSS gate on .pf-tutor-callout. The JS builds the bubbles, but
+  // a stylesheet rule still has to let them render.
+  document.body.classList.add('pf-pvu-sample');
   pvuWeekOffset = 0;
   pvuFollowLiveWeek = false;
   pvuFollowLiveDay = false;
@@ -1957,6 +1931,7 @@ function activateTutorialPvuSample() {
 function clearTutorialPvuSample() {
   if (!tutorialPvuSampleActive) return;
   tutorialPvuSampleActive = false;
+  document.body.classList.remove('pf-pvu-sample');
   pvuFollowLiveWeek = true;
   pvuFollowLiveDay = true;
   pvuBreakdownPinned = false;
@@ -1977,8 +1952,13 @@ function setTutorialTimerFieldsLocked(locked, blockIds = null) {
     if (!block) return;
     block.querySelectorAll('.timer-hms input').forEach((inp) => {
       inp.disabled = locked;
+      // v83: when the tutorial hands a field to the user it must be fully
+      // editable — the double-click-to-edit lock would otherwise swallow
+      // their typing on the steps that ask them to set a duration.
+      if (!locked) inp.readOnly = false;
     });
     block.querySelectorAll('.timer-hms').forEach((el) => {
+      if (!locked) el.classList.remove('timer-hms-locked');
       el.classList.toggle('timer-hms-tutorial-locked', locked);
       if (locked) {
         el.title = 'Will unlock after tutorial';
@@ -2079,14 +2059,14 @@ function ensureTutorialWrappedCard(visible) {
           // Per user spec 2026-07: "don't let them click next till they open the thing."
           chrome.storage.local.set({ tutorialWrappedOpened: true }).catch(() => {});
           updateTutorNextState();
-          // Behave exactly like the real banner will on THEIR skin:
-          //   notebook  → fullscreen crate unboxing
-          //   basic     → just the example card modal, no fullscreen
-          if (document.body.classList.contains('theme-notebook')) {
-            void pfRecapOpenChest(demo.recap, { forceChest: true, demo: true, slides: [demo.slide] });
-          } else {
-            void pfRecapOpenModal(demo.slide, { markSeen: false });
-          }
+          // v83 (user spec: "for step 8 please show the box opening"): ALWAYS
+          // play the crate unboxing here, on every theme. It used to branch
+          // on theme-notebook and fall back to a plain card modal otherwise —
+          // and since the theme-pick step was removed from onboarding,
+          // everyone now arrives on the default skin, so nobody was seeing
+          // the crate at all. This is the one moment the feature is being
+          // shown off, so it should look the same for everyone.
+          void pfRecapOpenChest(demo.recap, { forceChest: true, demo: true, slides: [demo.slide] });
           // …then disappears for good.
           if (host) setTutorialFixedVisible(host, false, TUTORIAL_WRAPPED_CARD_POS);
         });
@@ -2153,7 +2133,9 @@ function applyTutorialFloatingButtonHighlight() {
 }
 
 function refreshTutorialStep9Layout() {
-  if (currentStep !== 8) return;
+  // v83: the Floating button step was removed from the tutorial, so the
+  // mock-indicator path below can never apply to a real step.
+  return;
   applyTutorialFloatingButtonHighlight();
   tutorialRepositionBox?.();
 }
@@ -2258,16 +2240,16 @@ function getTabLimitValueOrNull() {
   return Math.min(raw, MAX_TAB_LIMIT);
 }
 
+// v83: the lock button is gone, so this only shakes the number field now.
+// Kept (rather than inlined into triggerTutorialShake) because callers pass
+// no argument and the intent "reject this tab-limit edit" is worth naming.
 function triggerTabLimitLockShake() {
   const input = $('maxTabLimit');
-  const lockBtn = $('tabLimitLockBtn');
-  [input, lockBtn].forEach((el) => {
-    if (!el) return;
-    el.classList.remove('shake');
-    void el.offsetWidth;
-    el.classList.add('shake');
-    setTimeout(() => el.classList.remove('shake'), 420);
-  });
+  if (!input) return;
+  input.classList.remove('shake');
+  void input.offsetWidth;
+  input.classList.add('shake');
+  setTimeout(() => input.classList.remove('shake'), 420);
 }
 
 function triggerTutorialShake(el) {
@@ -2279,7 +2261,7 @@ function triggerTutorialShake(el) {
 }
 
 function isTutorialRankingPerTabOnlyStep() {
-  return document.body.classList.contains('tutorial-active') && currentStep === 5;
+  return false; // v83: the ranking step was removed from the tutorial.
 }
 
 function triggerRankingModePerWebsiteShake() {
@@ -2328,38 +2310,27 @@ function isTutorialNotebookBackLocked() {
 
 function updateTutorialTabLimitControls() {
   const input = $('maxTabLimit');
-  const lockBtn = $('tabLimitLockBtn');
   const confirmBtn = $('confirmTabLimit');
-  if (!input || !lockBtn || !confirmBtn) return;
+  if (!input || !confirmBtn) return;
 
-  const applyLockButtonState = () => {
-    const isLocked = !!tutorialTabLimitLocked;
-    const lockIcon = lockBtn.querySelector('.pf-control-icon, .nb-sketch-icon');
-    if (lockIcon) lockIcon.dataset.icon = isLocked ? 'lock-closed' : 'lock-open';
-    lockBtn.classList.toggle('is-locked', isLocked);
-    lockBtn.classList.toggle('is-unlocked', !isLocked);
-    lockBtn.setAttribute('aria-label', isLocked ? 'Unlock tab limit value' : 'Lock tab limit value');
-    lockBtn.title = isLocked ? 'Unlock tab limit value' : 'Lock tab limit value';
-  };
-
-  const inTutorialTabLimitFlow = currentStep === 3 || currentStep === 4;
+  const inTutorialTabLimitFlow = currentStep === 2;
   const hasValidTabLimit = getTabLimitValueOrNull() !== null;
 
+  // v83: the lock is gone. The field is always editable and Confirm is
+  // gated on a valid number alone. Previously Confirm outside the tutorial
+  // required `tutorialTabLimitLocked`, which is now unreachable — leaving
+  // that condition in would have left Confirm permanently disabled.
+  input.disabled = false;
+
   if (!inTutorialTabLimitFlow) {
-    input.disabled = tutorialTabLimitLocked;
-    applyLockButtonState();
-    const canConfirmOutsideTutorial = tutorialTabLimitLocked && hasValidTabLimit;
-    confirmBtn.disabled = !canConfirmOutsideTutorial;
-    confirmBtn.classList.toggle('tutorial-active-green', canConfirmOutsideTutorial);
+    confirmBtn.disabled = !hasValidTabLimit;
+    confirmBtn.classList.toggle('tutorial-active-green', hasValidTabLimit);
     confirmBtn.classList.remove('tutorial-pulse');
-    confirmBtn.style.cursor = canConfirmOutsideTutorial ? 'pointer' : 'not-allowed';
+    confirmBtn.style.cursor = hasValidTabLimit ? 'pointer' : 'not-allowed';
     return;
   }
 
-  input.disabled = tutorialTabLimitLocked;
-  applyLockButtonState();
-
-  const canConfirm = currentStep === 4 && hasValidTabLimit;
+  const canConfirm = currentStep === 2 && hasValidTabLimit;
   confirmBtn.disabled = !canConfirm;
   confirmBtn.classList.toggle('tutorial-active-green', canConfirm);
   confirmBtn.classList.toggle('tutorial-pulse', canConfirm && !tutorialTabLimitConfirmClicked);
@@ -2493,8 +2464,6 @@ function getTutorialUnlockHint(stepIdx) {
       return 'Edit the window name and save it to continue.';
     case 'tab-limit':
       return 'Set a tab limit and click Confirm to continue.';
-    case 'tab-limit-lock-cycle':
-      return 'Unlock and re-lock the tab limit once to continue.';
     case 'tab-limit-apply':
       return 'Click Confirm to apply your tab limit and continue.';
     case 'customizations-theme':
@@ -2736,11 +2705,59 @@ function isTimerHmsFieldFocused(hiddenId) {
   return !!(box && box.contains(document.activeElement));
 }
 
+// ── v83: timers are read-only until double-clicked (user spec) ────────────
+// They looked like editable form fields at all times, which invited stray
+// clicks and made the row read as a form rather than a setting. Now each
+// .timer-hms sits `readonly` with its underline hidden, and a double-click
+// unlocks it. Locking is `readonly`, NOT `disabled`, on purpose: disabled
+// fields are skipped by form reads and lose their value to some restore
+// paths, whereas readonly still reads normally and still accepts every
+// programmatic write (writeTimerHmsFromString, tutorial presets, config
+// load). The tutorial is exempt — several steps hand these fields straight
+// to the user, so setTutorialTimerFieldsLocked(false, …) clears the lock
+// and pfRelockAllTimerHms() puts it back when the tutorial finishes.
+function pfSetTimerHmsLocked(box, locked) {
+  if (!box) return;
+  box.classList.toggle('timer-hms-locked', locked);
+  box.querySelectorAll('input').forEach((inp) => { inp.readOnly = locked; });
+  if (locked && !box.classList.contains('timer-hms-tutorial-locked')) {
+    box.title = 'Double-click to edit';
+  } else if (locked) {
+    // Tutorial lock owns the title in this state; leave its message alone.
+  } else {
+    box.removeAttribute('title');
+  }
+}
+
+function pfRelockAllTimerHms() {
+  document.querySelectorAll('.timer-hms[data-sync-id]').forEach((box) => {
+    pfSetTimerHmsLocked(box, true);
+  });
+}
+
 function bindTimerHmsInputs() {
   document.querySelectorAll('.timer-hms[data-sync-id]').forEach((box) => {
     const hiddenId = box.dataset.syncId;
     if (!hiddenId || box.dataset.hmsBound === '1') return;
     box.dataset.hmsBound = '1';
+    box.addEventListener('dblclick', (event) => {
+      if (box.classList.contains('timer-hms-tutorial-locked')) return;
+      pfSetTimerHmsLocked(box, false);
+      const field = event.target.closest('input') || box.querySelector('.timer-hms-m');
+      field?.focus();
+      field?.select();
+    });
+    box.addEventListener('focusout', (event) => {
+      // Moving between the h/m/s fields of the same widget stays unlocked.
+      if (box.contains(event.relatedTarget)) return;
+      if (document.body.classList.contains('tutorial-active')) return;
+      pfSetTimerHmsLocked(box, true);
+    });
+    box.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.target.blur();
+      pfSetTimerHmsLocked(box, true);
+    });
     box.querySelectorAll('input').forEach((inp) => {
       inp.addEventListener('input', () => {
         inp.value = inp.value.replace(/\D/g, '').slice(0, 2);
@@ -2761,6 +2778,9 @@ function bindTimerHmsInputs() {
     });
     normalizeTimerHmsBox(box);
     syncTimerHiddenFromHms(hiddenId);
+    if (!document.body.classList.contains('tutorial-active')) {
+      pfSetTimerHmsLocked(box, true);
+    }
   });
 }
 
@@ -2785,7 +2805,7 @@ async function autoSave(triggerSource) {
   // USABLE; only a LOCKED toggle (active spend session — rendered disabled
   // and force-unchecked) must not clobber config with its forced state.
   const enforcerLocked = !!(enforcerEl && (enforcerEl.disabled || enforcerEl.hasAttribute('data-pf-locked')));
-  const limitsEnabled = currentStep === 7
+  const limitsEnabled = false
     ? currentConfig.limitsEnabled
     : enforcerLocked
       ? currentConfig.limitsEnabled
@@ -3414,7 +3434,7 @@ function updateWipeTabTimesVisibility() {
 }
 
 function isTutorialWipeTabTimesStep() {
-  return currentStep === 6 && document.body.classList.contains('tutorial-active');
+  return false; // v83: the Floating button step was removed.
 }
 
 function syncWipeTabTimesContainerUi(wipeUiOn) {
@@ -3430,7 +3450,7 @@ function syncWipeTabTimesContainerUi(wipeUiOn) {
 }
 
 async function maybeAdvanceTutorialWipeTabTimesStep() {
-  if (currentStep !== 6) return;
+  return; // v83: Floating button step removed.
 
   const enabled = $('enableWipeTabTimes')?.checked === true;
   const textEl = $('tutorText');
@@ -3862,6 +3882,14 @@ async function pfSyncAdvancedSettingsLock() {
   const locked = await pfAdvancedSettingsLockedNow();
   row.classList.toggle('pf-adv-locked', locked);
   checkbox.disabled = locked;
+  // v83: the checkbox is gone from the UI, so this row now exists only to
+  // carry the lock countdown. Show it while locked, hide it once unlocked,
+  // and auto-expand the section the moment the lock lifts — the user opened
+  // the Advanced Settings tab, that IS the intent to expand.
+  row.style.display = locked ? 'flex' : 'none';
+  if (!locked && !checkbox.checked) {
+    void setAdvancedSettingsExpanded(true, { persist: false });
+  }
   let note = $('pfAdvUnlockNote');
   if (locked) {
     if (!note) {
@@ -3963,21 +3991,15 @@ function bindAdvancedSettingsToggle() {
   const checkbox = $('enableLimits');
   if (!row || !checkbox || row.dataset.advBound === '1') return;
   row.dataset.advBound = '1';
-  row.style.cursor = 'pointer';
-  const syncFromCheckbox = () => {
+  // v83: the click-to-toggle handlers on the row and its label are GONE
+  // along with the visible checkbox. The row is now just the lock-countdown
+  // host, and clicking it must not collapse the panel the user is reading.
+  // The `change` listener stays because programmatic writes to
+  // #enableLimits (tutorial reveals, config restore) still need to drive
+  // the section's display.
+  checkbox.addEventListener('change', () => {
     if (checkbox.disabled) { checkbox.checked = false; return; }
     void setAdvancedSettingsExpanded(checkbox.checked);
-  };
-  checkbox.addEventListener('change', syncFromCheckbox);
-  const label = row.querySelector('label[for="enableLimits"]');
-  label?.addEventListener('click', () => {
-    queueMicrotask(syncFromCheckbox);
-  });
-  row.addEventListener('click', (event) => {
-    if (event.target.closest('button, a, label')) return;
-    if (checkbox.disabled) return; // locked — countdown explains why
-    checkbox.checked = !checkbox.checked;
-    syncFromCheckbox();
   });
   void pfSyncAdvancedSettingsLock();
 }
@@ -4012,6 +4034,41 @@ async function bindReorderTabsToggle() {
       await chrome.storage.local.set({ [KEY]: toggle.checked === true });
     } catch (e) {
       console.warn('[pf-reorder-toggle] save failed', e);
+    }
+  });
+}
+
+// ── v83: Group Similar Tabs ────────────────────────────────────────────────
+// Third automation toggle. Defaults OFF: it changes where tabs sit, and
+// silently rearranging an existing user's tab bar on update would be a
+// hostile surprise. The worker reads pfGroupSimilarTabsEnabled directly.
+//
+// Turning this on while Reorder Tabs is off is a supported combination —
+// reorderTabsByEngagement only bails when BOTH are off — so the user can have
+// grouping with none of the engagement promotion.
+async function bindGroupSimilarTabsToggle() {
+  const toggle = document.getElementById('groupSimilarTabsToggle');
+  if (!toggle || toggle.dataset.pfBound === '1') return;
+  toggle.dataset.pfBound = '1';
+  const KEY = 'pfGroupSimilarTabsEnabled';
+  try {
+    const stored = await chrome.storage.local.get(KEY);
+    toggle.checked = stored[KEY] === true;
+  } catch (_) { toggle.checked = false; }
+  toggle.addEventListener('change', async () => {
+    try {
+      await chrome.storage.local.set({ [KEY]: toggle.checked === true });
+      // Apply immediately rather than waiting for the next tab switch — the
+      // user just asked for their tabs to be grouped, so group them.
+      if (toggle.checked) {
+        const win = await chrome.windows.getCurrent().catch(() => null);
+        if (win?.id != null) {
+          await chrome.runtime.sendMessage({ action: 'reorderTabsNow', windowId: win.id })
+            .catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('[pf-group-toggle] save failed', e);
     }
   });
 }
@@ -4194,13 +4251,13 @@ async function refreshCloserToggleUI() {
   lastToggleLockSignature = lockSignature;
 
   if ($('enforcerToggle')) {
-    // During the "Closer toggle" (currentStep === 7) and "Floating button"
-    // (currentStep === 8) tutorial steps, the tutorial owns the checkbox
+    // During the "Closer toggle" step (currentStep === 3) the tutorial owns
+    // the checkbox
     // transiently. Do NOT reset it to the stale stored limitsEnabled here —
     // that snapped the toggle back OFF the instant the user turned it ON.
     // (This runs frequently via storage/timer refreshes, so it overrode the
     // renderWindowSettings guard.)
-    if (currentStep !== 7 && currentStep !== 8) {
+    if (true) {
       // STUDY-FORCES-ON: while a Work Timer study session is live, force the
       // checkbox visually ON (matches limitsEnabled which the worker also
       // pinned true on session start). Otherwise the spend-lock branch
@@ -4398,7 +4455,6 @@ async function renderWindowSettings() {
   $('maxTabLimit').value = Math.min(config.tabLimit || 5, MAX_TAB_LIMIT);
   renderedTabLimit = Math.min(config.tabLimit || 5, MAX_TAB_LIMIT);
   const tabLimitInput = $('maxTabLimit');
-  const tabLimitLockBtn = $('tabLimitLockBtn');
   // If a timer is active, force toggle visual to OFF and disable it,
   // regardless of what config.limitsEnabled says
   const { advancedSettingsExpanded, bankSpendActive, bankSpendPaused } = await chrome.storage.local.get([
@@ -4421,12 +4477,12 @@ async function renderWindowSettings() {
     void setAdvancedSettingsExpanded(advExpanded, { persist: false });
   }
   if ($('enforcerToggle')) {
-    // During the "Closer toggle" step (currentStep === 7) and the "Floating
-    // button" mock step (currentStep === 8), the tutorial owns the checkbox
+    // During the "Closer toggle" step (currentStep === 3) the tutorial owns
+    // the checkbox
     // transiently (ON→OFF cycle / mock hold). Do NOT reset it to the stale
     // stored value here — that was snapping the toggle back OFF the instant the
     // user turned it ON, breaking both steps.
-    if (currentStep !== 7 && currentStep !== 8) {
+    if (true) {
       $('enforcerToggle').checked = toggleLocked ? false : limEn;
     }
     $('enforcerToggle').disabled = toggleLocked;
@@ -4546,25 +4602,10 @@ async function renderWindowSettings() {
   syncRankingModeDemo();
 
   if (tabLimitInput) {
-    if (!tabLimitInput.dataset.lockGuardBound) {
-      const guard = (e) => {
-        const inTutorialTabLimitFlow = currentStep === 3 || currentStep === 4;
-        if (!tutorialTabLimitLocked) return;
-        if (inTutorialTabLimitFlow) return;
-        if (e?.type === 'focus') {
-          tabLimitInput.blur();
-        } else if (e?.cancelable) {
-          e.preventDefault();
-        }
-        triggerTabLimitLockShake();
-      };
-      ['mousedown', 'click', 'wheel', 'keydown', 'focus'].forEach((evtName) => {
-        tabLimitInput.addEventListener(evtName, guard, { passive: false });
-      });
-      tabLimitInput.dataset.lockGuardBound = 'true';
-    }
+    // v83: the lock guard that swallowed clicks/keys on the number
+    // field while locked is gone — the field is always editable now.
     tabLimitInput.oninput = () => {
-      if (currentStep === 4 && !tutorialTabLimitLocked) {
+      if (currentStep === 2) {
         tutorialTabLimitUserEdited = true;
         tutorialTabLimitReadyForConfirm = false;
       }
@@ -4575,65 +4616,9 @@ async function renderWindowSettings() {
     };
   }
 
-  if (tabLimitLockBtn) {
-    tabLimitLockBtn.onclick = async () => {
-      const inTutorialTabLimitFlow = currentStep === 3 || currentStep === 4;
-      if (!inTutorialTabLimitFlow) {
-        tutorialTabLimitLocked = !tutorialTabLimitLocked;
-        tutorialTabLimitReadyForConfirm = false;
-        chrome.storage.local.set({ tabLimitLockState: tutorialTabLimitLocked });
-        console.info('[pf-tutor-lock-diag] non-tutorial toggle', {
-          tutorialTabLimitLocked,
-          tutorialTabLimitReadyForConfirm,
-          tutorialTabLimitUserEdited
-        });
-        updateTutorialTabLimitControls();
-        return;
-      }
-
-      if (currentStep === 4) {
-        triggerTabLimitLockShake();
-        return;
-      }
-
-      if (tutorialTabLimitLocked) {
-        tutorialTabLimitLocked = false;
-        tutorialTabLimitReadyForConfirm = false;
-        if (currentStep === 3) {
-          await chrome.storage.local.set({ tutorialTabLimitConfirmed: false });
-        }
-      } else {
-        const validTabLimit = getTabLimitValueOrNull();
-        if (validTabLimit !== null) {
-          tutorialTabLimitLocked = true;
-          tutorialTabLimitRelockSeen = true;
-          if (currentStep === 3) {
-            await chrome.storage.local.set({ tutorialTabLimitConfirmed: true });
-            // Stop the glow the moment the lock actually engages — the
-            // pulse was originally a "look at me" cue, and once the user
-            // has clicked it, continuing to pulse feels demanding.
-            tabLimitLockBtn.classList.remove('pf-tutorial-lock-glow');
-            // Confirmation feedback: same pattern as other early tutorial
-            // steps ("Great. Now click Next to move on.").
-            const textEl = $('tutorText');
-            if (textEl) textEl.innerText = 'Locked. Click Next to move on.';
-          }
-          tutorialTabLimitReadyForConfirm = currentStep === 4;
-        } else {
-          triggerTabLimitLockShake();
-        }
-      }
-      chrome.storage.local.set({ tabLimitLockState: tutorialTabLimitLocked });
-      console.info('[pf-tutor-lock-diag] tutorial toggle', {
-        currentStep,
-        tutorialTabLimitLocked,
-        tutorialTabLimitReadyForConfirm,
-        tutorialTabLimitUserEdited
-      });
-      updateTutorialTabLimitControls();
-      void updateTutorNextState();
-    };
-  }
+  // v83 (user spec): the tab-limit lock button and its whole click
+  // state machine (non-tutorial toggle, step-3 lock/unlock cycle, the
+  // step-4 shake) were removed with the button itself.
 
   $('confirmTabLimit').onclick = async () => {
     const confirmBtn = $('confirmTabLimit');
@@ -4642,15 +4627,15 @@ async function renderWindowSettings() {
     if (!win) return;
     const tabLimit = getTabLimitValueOrNull() || 5;
     const tutorialIncomplete = !(await isTutorialCompleted());
-    if (tutorialIncomplete && currentStep === 3) {
+    if (tutorialIncomplete && currentStep === 2) {
       return;
     }
-    if (tutorialIncomplete && currentStep === 4 && getTabLimitValueOrNull() === null) {
+    if (tutorialIncomplete && currentStep === 2 && getTabLimitValueOrNull() === null) {
       return;
     }
-    if (!tutorialIncomplete && !tutorialTabLimitLocked) {
-      return;
-    }
+    // v83: the "must be locked first" bail is gone with the lock button.
+    // It would now be permanently true outside the tutorial, making Confirm
+    // a dead button for every existing user.
 
     const skipFlags = await chrome.storage.local.get(['tutorialSkippedEver']);
     if (skipFlags.tutorialSkippedEver === true) {
@@ -4732,7 +4717,10 @@ async function renderOtherComputers() {
   list.appendChild(createParagraph('This section would display sync data (Backend Required).', "font-size:0.9em; color:#777;"));
 }
 
-const SIGN_IN_BANNER_TEXT = "Sign in to activate PlayingFild. The extension does not classify pages or close tabs until you sign in.\n\nPlease sign in to use PlayingFild. This allows us to stop bots and abuse.";
+// v84 (user spec): the second paragraph, "Please sign in to use PlayingFild.
+// This allows us to stop bots and abuse.", is removed. It repeated the first
+// sentence and led with our problem rather than theirs.
+const SIGN_IN_BANNER_TEXT = "Sign in to activate PlayingFild. The extension does not classify pages or close tabs until you sign in.";
 
 function emailFromAccessToken(accessToken) {
   try {
@@ -6270,7 +6258,20 @@ function showPvuBreakdown(day, dayLabel, { pin = false, dayIndex = 0 } = {}) {
  * one YouTube, two verdicts.
  */
 function pfTutorialAttachYoutubeCallouts(breakdownEl) {
-  if (!document.body.classList.contains('tutorial-step-pvu')) return;
+  // v84 FIX (user report: "on the old stats tutorial page when you hovered
+  // over the tabs there were two pointer boxes... please fix it so they both
+  // work"). They stopped working entirely, and not subtly: v83 deleted the
+  // Weekly-productivity tutorial step, which was the only thing that ever
+  // added `tutorial-step-pvu` to <body>. Both the guard here and the CSS
+  // rule `body:not(.tutorial-step-pvu) .pf-tutor-callout { display:none }`
+  // key off that class, so the bubbles were built-and-hidden or never built.
+  //
+  // Their new home is the EXAMPLE WEEK. The lesson they teach, one site can
+  // be productive and unproductive on the same day, is exactly what the
+  // sample data demonstrates: it seeds youtube.com into both columns. The
+  // tutorial class is still honoured in case that step ever returns.
+  const onSample = typeof tutorialPvuSampleActive !== 'undefined' && tutorialPvuSampleActive;
+  if (!document.body.classList.contains('tutorial-step-pvu') && !onSample) return;
   if (!breakdownEl) return;
   breakdownEl.querySelectorAll('.pvu-breakdown-col').forEach((col) => {
     const title = (col.querySelector('h4')?.textContent || '').toLowerCase();
@@ -6739,6 +6740,37 @@ async function renderProductiveVsUnproductive() {
     hasData = days.some((d) => d.total > 0 || (d.realProductivityScore || 0) > 0);
   }
 
+  // v83 (user report: "I'm not seeing the thing that shows me what it could
+  // look like"). The sample used to be offered from pfMaybeFirstStatsVisit,
+  // which only fires when you switch to the Stats MAIN tab — so arriving at
+  // the chart any other way (sub-tab click, week nav, reload, already being
+  // on Stats) skipped it entirely. This is the one place that actually knows
+  // the chart is empty, so offer it here and every entry path is covered.
+  // THE TRIGGER IS "not a full week yet", NOT "no data at all". Twice I gated
+  // this on hasData being false, and twice it never fired for anyone who had
+  // used the extension even once — which is everybody who reaches this chart.
+  // The point is to show what a WEEK looks like, so it runs until they have
+  // one: seven days with something in them.
+  const daysWithData = days.filter(
+    (d) => (d.total || 0) > 0 || (d.realProductivityScore || 0) > 0
+  ).length;
+  if (daysWithData < 7
+    && !tutorialPvuSampleActive
+    && !pfStatsSampleOffered
+    && !document.body.classList.contains('tutorial-active')) {
+    pfStatsSampleOffered = true; // also stops this recursing more than once
+    let dismissed = false;
+    try {
+      const s = await chrome.storage.local.get('pfStatsSampleDismissed');
+      dismissed = s?.pfStatsSampleDismissed === true;
+    } catch (_) { dismissed = false; }
+    if (!dismissed) {
+      activateTutorialPvuSample();
+      pfShowStatsSampleBanner(daysWithData);
+      return renderProductiveVsUnproductive();
+    }
+  }
+
   syncPvuLiveDaySelection(days);
   pvuCurrentDays = days;
   pvuHasData = hasData;
@@ -7093,13 +7125,19 @@ async function renderProductiveVsUnproductive() {
  * flips as soon as the sign-in state changes.
  */
 function refreshProfileTabAvailability() {
-  const signedIn = !!currentUser?.email;
+  // Trial (v56): a live 30-minute test unlocks the gated tabs too, so
+  // testers can actually see per-window settings before signing up.
+  const signedIn = !!currentUser?.email || pfTrialUi.active === true;
   document.querySelectorAll('.pf-profile-tab').forEach((tabBtn) => {
     const tab = tabBtn.dataset.profileTab;
     // Wrapped added 2026-07 v30 (user spec: don't even let them click on
     // the tab of it to open it while signed out). Same aria-disabled +
     // click-swallow pattern as windows/settings.
-    if (tab === 'windows' || tab === 'settings' || tab === 'wrapped') {
+    // v84 (user spec): 'advanced' joins the locked set. Advanced Settings
+    // configures tab life, earn/spend banking and startup slots, none of
+    // which the engine will honour while signed out, so letting someone set
+    // them up and watch nothing happen is worse than saying no.
+    if (PF_SIGNED_IN_ONLY_TABS.includes(tab)) {
       tabBtn.setAttribute('aria-disabled', signedIn ? 'false' : 'true');
       tabBtn.title = signedIn ? '' : 'Sign in to use this';
     }
@@ -7108,14 +7146,264 @@ function refreshProfileTabAvailability() {
   // punt them back to the User tab so they don't stare at a hidden panel.
   if (!signedIn) {
     const active = document.querySelector('.pf-profile-tab.active');
-    const t = active?.dataset.profileTab;
-    if (t === 'windows' || t === 'settings' || t === 'wrapped') {
+    if (PF_SIGNED_IN_ONLY_TABS.includes(active?.dataset.profileTab)) {
       switchProfileTab('user');
     }
   }
   // Re-sync the dark-mode toggle so its disabled state matches the
   // current sign-in state (user spec 2026-07 v30).
   try { void pfSyncDarkModeToggleUI(); } catch (_) { /* not yet bound */ }
+}
+
+// ── 30-minute signed-out test mode UI (user spec 2026-07 v56) ─────────────
+// Worker owns all trial truth (storage-backed, one-shot). This layer only
+// renders: offer button → notice + confirm → countdown pill → ended line,
+// and un-dims the dashboard while a test is live.
+let pfTrialUi = { active: false, consumed: false, startedAt: 0, remainingSec: 0 };
+let pfTrialPollTimer = null;
+let pfTrialUiBound = false;
+// v59 (supersedes the v57 skip auto-reveal): the notice drop-down and the
+// Start button appear ONLY when the user clicks "Test for 30 min" — never
+// automatically. Skippers land on the sign-in step with just the buttons.
+
+function pfQueryTrialState() {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ action: 'pfGetTrialState' }, (resp) => {
+        void chrome.runtime.lastError;
+        resolve(resp || null);
+      });
+    } catch (_) { resolve(null); }
+  });
+}
+
+async function pfRefreshTrialUiState() {
+  const s = await pfQueryTrialState();
+  if (s) {
+    pfTrialUi = {
+      active: s.active === true,
+      consumed: s.consumed === true,
+      startedAt: Number(s.startedAt) || 0,
+      remainingSec: Math.max(0, Number(s.remainingSec) || 0),
+    };
+  }
+  return pfTrialUi;
+}
+
+function pfFormatTrialRemaining(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.max(0, sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function pfStopTrialPoll() {
+  if (pfTrialPollTimer) { clearInterval(pfTrialPollTimer); pfTrialPollTimer = null; }
+}
+
+function pfStartTrialPoll() {
+  if (pfTrialPollTimer) return;
+  pfTrialPollTimer = setInterval(async () => {
+    const s = await pfQueryTrialState();
+    if (!s) return;
+    pfTrialUi.active = s.active === true;
+    pfTrialUi.consumed = s.consumed === true;
+    pfTrialUi.remainingSec = Math.max(0, Number(s.remainingSec) || 0);
+    const countdown = document.getElementById('pfTrialCountdown');
+    if (countdown) {
+      countdown.textContent = `Test mode: ${pfFormatTrialRemaining(pfTrialUi.remainingSec)} of active use left. Sign in to keep everything after it ends.`;
+    }
+    if (!pfTrialUi.active) {
+      pfStopTrialPoll();
+      void renderAuthUI(); // wall returns with the trial-ended line
+    }
+  }, 1000);
+}
+
+function pfBindTrialUI() {
+  if (pfTrialUiBound) return;
+  pfTrialUiBound = true;
+  const btn = document.getElementById('pfTrialTestBtn');
+  const confirmBtn = document.getElementById('pfTrialConfirmBtn');
+  const notice = document.getElementById('pfTrialNotice');
+  btn?.addEventListener('click', () => {
+    // v59: Test click toggles the notice AND the Start button beside it.
+    const willShow = notice ? notice.style.display === 'none' : false;
+    if (notice) notice.style.display = willShow ? 'block' : 'none';
+    if (confirmBtn) confirmBtn.style.display = willShow ? 'inline-block' : 'none';
+  });
+  confirmBtn?.addEventListener('click', () => {
+    try {
+      chrome.runtime.sendMessage({ action: 'pfStartTrial' }, (resp) => {
+        void chrome.runtime.lastError;
+        if (notice) notice.style.display = 'none';
+        if (confirmBtn) confirmBtn.style.display = 'none';
+        if (resp?.ok) {
+          void renderAuthUI();
+          // Dashboard path has no finish animation — notify right away.
+          void pfMaybeNotifyTrialSelfClassify();
+        }
+      });
+    } catch (_) { /* worker asleep — next click retries */ }
+  });
+  // Tutorial sign-in step variant (v57): same one-shot trial, offered next
+  // to the tutorial's Sign In button. Confirm starts the trial and routes
+  // through finishTutorial() so the normal completion flow (data-mode
+  // choice, pin guide) still runs — with the sign-in hard-gates keeping
+  // everything local until they eventually sign in.
+  const tutorBtn = document.getElementById('tutorTrialBtn');
+  const tutorNotice = document.getElementById('tutorTrialNotice');
+  const tutorConfirm = document.getElementById('tutorTrialConfirm');
+  tutorBtn?.addEventListener('click', () => {
+    // v59: Test click reveals the notice AND the Start button beside it.
+    const willShow = tutorNotice ? tutorNotice.hidden : false;
+    if (tutorNotice) tutorNotice.hidden = !willShow;
+    if (tutorConfirm) tutorConfirm.style.display = willShow ? 'inline-block' : 'none';
+  });
+  tutorConfirm?.addEventListener('click', () => {
+    try {
+      chrome.runtime.sendMessage({ action: 'pfStartTrial' }, (resp) => {
+        void chrome.runtime.lastError;
+        if (tutorNotice) tutorNotice.hidden = true;
+        if (resp?.ok) {
+          pfHideTutorTrialUI();
+          void finishTutorial();
+          void renderAuthUI();
+        }
+      });
+    } catch (_) { /* worker asleep — next click retries */ }
+  });
+  // v60: trial expectation popup close affordances (mirrors the skip-video
+  // popup: Got it button + backdrop click + Escape).
+  document.getElementById('pfTrialClassifyGotIt')?.addEventListener('click', pfHideTrialClassifyModal);
+  document.getElementById('pfTrialClassifyBackdrop')?.addEventListener('click', pfHideTrialClassifyModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('pfTrialClassifyModal')?.classList.contains('is-visible')) {
+      pfHideTrialClassifyModal();
+    }
+  });
+  try {
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.action === 'pfTrialExpired') void renderAuthUI();
+    });
+  } catch (_) { /* non-extension context (preview page) */ }
+}
+
+/** v60: hide the trial expectation popup (Got it / backdrop / Escape). */
+function pfHideTrialClassifyModal() {
+  const m = document.getElementById('pfTrialClassifyModal');
+  if (!m) return;
+  m.classList.remove('is-visible');
+  m.hidden = true;
+  m.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+/**
+ * v60: show the trial expectation popup — an IN-PAGE modal styled exactly
+ * like the "you skipped the tutorial" popup (user spec: "it should look
+ * like the you skipped the tutorial pop up thing"). If the skip-video
+ * popup is currently on screen (skipper who then started the test), wait
+ * politely for the user to dismiss it first so the two never stack.
+ */
+function pfShowTrialClassifyModal() {
+  const modal = document.getElementById('pfTrialClassifyModal');
+  if (!modal) return;
+  // v84 (user spec): "if they have the skip tutorial thing AND the 30 min
+  // test, show the test notification IN FRONT of the you-skipped-the-tutorial
+  // thing."
+  //
+  // This used to do the opposite: it polled every 500ms and waited for the
+  // skip-video modal to close first, giving up after two minutes. The trial
+  // is the time-critical one — the clock is already running and the user
+  // needs to know they have to classify sites themselves — so it now goes
+  // straight over the top. #pfTrialClassifyModal carries a higher z-index
+  // than .pf-skip-video-modal for exactly this case; see stats.html.
+  modal.hidden = false;
+  modal.classList.add('is-visible');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('pfTrialClassifyGotIt')?.focus();
+}
+
+/**
+ * v58/v60: self-classify expectation popup. Fires ONLY while a trial is
+ * live. Timing (user spec): on the tutorial path it must show AFTER the
+ * finish animation (firing at trial start buried it under the tutorial);
+ * on the dashboard path (no animation) it fires immediately on start.
+ */
+async function pfMaybeNotifyTrialSelfClassify() {
+  try {
+    const s = await pfQueryTrialState();
+    if (!s || s.active !== true) return;
+    pfShowTrialClassifyModal();
+  } catch (e) {
+    console.warn('[pf-trial] self-classify popup failed:', e);
+  }
+}
+
+/** Hide the tutorial-step trial UI (any non-sign-in step). */
+function pfHideTutorTrialUI() {
+  const b = document.getElementById('tutorTrialBtn');
+  const c = document.getElementById('tutorTrialConfirm');
+  const n = document.getElementById('tutorTrialNotice');
+  if (b) b.style.display = 'none';
+  if (c) c.style.display = 'none';
+  if (n) n.hidden = true;
+}
+
+/** Show the tutorial trial button on the sign-in step, unless already used. */
+async function pfSyncTutorTrialButton() {
+  const btn = document.getElementById('tutorTrialBtn');
+  if (!btn) return;
+  pfBindTrialUI();
+  const s = await pfQueryTrialState();
+  const usable = !!s && s.consumed !== true && s.signedIn !== true;
+  btn.style.display = usable ? 'inline-block' : 'none';
+  // v59: notice + Start button stay hidden until the Test button is
+  // clicked — on every arrival path, including Skip Tutorial.
+  const n = document.getElementById('tutorTrialNotice');
+  const c = document.getElementById('tutorTrialConfirm');
+  if (n) n.hidden = true;
+  if (c) c.style.display = 'none';
+}
+
+function pfRenderTrialOffer() {
+  const offer = document.getElementById('pfTrialOffer');
+  if (!offer) return;
+  pfBindTrialUI();
+  const btn = document.getElementById('pfTrialTestBtn');
+  const confirmB = document.getElementById('pfTrialConfirmBtn');
+  const notice = document.getElementById('pfTrialNotice');
+  const countdown = document.getElementById('pfTrialCountdown');
+  const selfNote = document.getElementById('pfTrialSelfClassifyNote');
+  const ended = document.getElementById('pfTrialEnded');
+  const show = (el, on) => { if (el) el.style.display = on ? ((el === btn || el === confirmB) ? 'inline-block' : 'block') : 'none'; };
+  if (currentUser?.email) {
+    offer.style.display = 'none';
+    pfStopTrialPoll();
+    return;
+  }
+  offer.style.display = 'block';
+  if (pfTrialUi.active) {
+    show(btn, false); show(confirmB, false); show(notice, false); show(ended, false); show(countdown, true);
+    // Standing note: signed-out testers must classify sites themselves —
+    // visible for the whole trial, not just the start notification.
+    show(selfNote, true);
+    if (countdown) {
+      countdown.textContent = `Test mode: ${pfFormatTrialRemaining(pfTrialUi.remainingSec)} of active use left. Sign in to keep everything after it ends.`;
+    }
+    pfStartTrialPoll();
+  } else if (pfTrialUi.consumed) {
+    show(btn, false); show(confirmB, false); show(notice, false); show(countdown, false); show(selfNote, false); show(ended, true);
+    pfStopTrialPoll();
+  } else {
+    show(btn, true); show(countdown, false); show(selfNote, false); show(ended, false);
+    // v59: notice + Start button start hidden (inline style in markup) and
+    // are revealed TOGETHER by the Test click handler in pfBindTrialUI.
+    // Deliberately left as-is here so a re-render doesn't slam the
+    // drop-down shut while the user is reading it.
+    pfStopTrialPoll();
+  }
 }
 
 async function renderAuthUI() {
@@ -7125,20 +7413,37 @@ async function renderAuthUI() {
   refreshProfileTabAvailability();
   const si = $('dashboardSignInBtn');
   const so = $('headerSignOutBtn');
+  // Trial (v56): resolve trial state before painting the banner/lock so a
+  // live 30-minute test presents like signed-in (no wall, no dimming).
+  if (!currentUser?.email) await pfRefreshTrialUiState();
   const banner = document.getElementById('pfSignInRequiredBanner');
   if (banner) {
+    // v84 (user spec): "instead of having all that text just make the sign in
+    // button say Test for 30 Min". A signed-out first-timer now sees the
+    // button and nothing else — the paragraph explaining that the extension
+    // is inert was answering a question nobody had asked yet.
+    //
+    // The banner survives for ONE case: the trial has been used up. At that
+    // point "sign in" really is the only thing left to say, and #pfTrialEnded
+    // says it, so the banner stays hidden there too. It is kept in the DOM
+    // rather than deleted because the signed-out lock styling keys off it.
     banner.textContent = SIGN_IN_BANNER_TEXT;
-    banner.style.display = currentUser?.email ? 'none' : 'block';
+    banner.style.display = 'none';
     banner.style.whiteSpace = 'pre-line';
   }
+  pfRenderTrialOffer();
+  // Re-run the tab lock now that trial state is fresh — the first call at
+  // the top of this function painted before the async trial fetch landed.
+  refreshProfileTabAvailability();
   // Global signed-out lock (per user spec 2026-07): while the user isn't
   // signed in, gray the dashboard controls so it's obvious the extension
   // is inert until they sign in. The tutorial overlay has its own signin
   // step and shouldn't be dimmed underneath it — skip while it's active.
+  // Trial (v56): a live test also un-dims everything.
   const tutorialActive = document.body.classList.contains('tutorial-active');
   document.body.classList.toggle(
     'pf-signed-out-locked',
-    !currentUser?.email && !tutorialActive
+    !currentUser?.email && !tutorialActive && !pfTrialUi.active
   );
   if (currentUser?.email) {
     if (si) {
@@ -7341,11 +7646,43 @@ async function renderProfilePanel() {
   }
 }
 
+/** Tabs that need an account (or a live trial). Read by switchProfileTab and
+ *  refreshProfileTabAvailability so the two can never disagree. */
+const PF_SIGNED_IN_ONLY_TABS = ['windows', 'settings', 'wrapped', 'advanced'];
+
+/** Last drawer tab, so reopening Settings lands where you left off (v84). */
+const PROFILE_TAB_KEY = 'pfLastProfileTab';
+const PF_PROFILE_TABS = ['user', 'wrapped', 'windows', 'settings', 'advanced'];
+let pfLastProfileTab = 'user';
+
+/** Hydrate the remembered drawer tab once at boot. */
+async function pfLoadLastProfileTab() {
+  try {
+    const v = (await chrome.storage.local.get(PROFILE_TAB_KEY))[PROFILE_TAB_KEY];
+    if (PF_PROFILE_TABS.includes(v)) pfLastProfileTab = v;
+  } catch (_) { /* keep the default */ }
+}
+
 function switchProfileTab(tabId) {
+  // v84: enforce the lock HERE rather than only on the rail button. The rail
+  // swallows clicks on a disabled tab, but ?drawer=advanced and the quick
+  // panel's "Open advanced settings" call this directly and would have walked
+  // straight past it.
+  if (PF_SIGNED_IN_ONLY_TABS.includes(tabId)
+      && !currentUser?.email && pfTrialUi.active !== true) {
+    tabId = 'user';
+  }
+  // v84 (user spec): remember which drawer tab you were last on so reopening
+  // Settings puts you back there. Recorded AFTER the lock coercion above, so
+  // a signed-out user cannot end up with a gated tab stored as their landing
+  // spot. Kept in memory as well as storage because openProfilePanel runs
+  // synchronously and cannot wait on a read.
+  pfLastProfileTab = tabId;
+  chrome.storage.local.set({ [PROFILE_TAB_KEY]: tabId }).catch(() => {});
   document.querySelectorAll('.pf-profile-tab').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.profileTab === tabId);
   });
-  ['pfProfileTabUser', 'pfProfileTabWrapped', 'pfProfileTabWindows', 'pfProfileTabSettings'].forEach((id) => {
+  ['pfProfileTabUser', 'pfProfileTabWrapped', 'pfProfileTabWindows', 'pfProfileTabSettings', 'pfProfileTabAdvanced'].forEach((id) => {
     const panel = document.getElementById(id);
     if (panel) panel.classList.remove('active');
   });
@@ -7353,10 +7690,23 @@ function switchProfileTab(tabId) {
     user: 'pfProfileTabUser',
     wrapped: 'pfProfileTabWrapped',
     windows: 'pfProfileTabWindows',
-    settings: 'pfProfileTabSettings'
+    settings: 'pfProfileTabSettings',
+    // v82: Advanced Settings now lives in the profile drawer rail.
+    advanced: 'pfProfileTabAdvanced'
   };
-  const panel = document.getElementById(panelMap[tabId] || panelMap.user);
+  const resolvedId = panelMap[tabId] || panelMap.user;
+  const panel = document.getElementById(resolvedId);
   if (panel) panel.classList.add('active');
+  // v83: Advanced Settings takes the whole drawer. The category rail is
+  // hidden (CSS: .pf-profile-adv-full) because the advanced controls need
+  // more width than the ~340px left over beside it. #pfProfileAdvancedBackBtn
+  // inside the panel is the only route back while the rail is hidden.
+  document.getElementById('pfProfilePanel')
+    ?.classList.toggle('pf-profile-adv-full', resolvedId === 'pfProfileTabAdvanced');
+  // v83: opening the tab is the expand gesture now that the checkbox is
+  // gone. This re-runs the first-run lock check, which expands the section
+  // when unlocked and shows the countdown when it is not.
+  if (resolvedId === 'pfProfileTabAdvanced') void pfSyncAdvancedSettingsLock();
 }
 
 function hideProfileLocalModeWarning() {
@@ -7439,6 +7789,34 @@ async function applyDataCollectionMode(mode) {
   await loadDataCollectionModeUI();
 }
 
+/**
+ * The skip-tutorial video, deferred to the first time Settings is opened.
+ *
+ * finishTutorial arms pfSkipVideoPendingOnSettings instead of showing the
+ * modal immediately (user spec v84). This consumes it. The flag is cleared
+ * BEFORE the modal is shown so a second open cannot queue it twice, and
+ * tutorialSkipVideoShown is stamped so the existing one-shot logic in
+ * finishTutorial never re-arms it.
+ */
+async function pfMaybeShowDeferredSkipVideo() {
+  let pending = false;
+  try {
+    pending = (await chrome.storage.local.get('pfSkipVideoPendingOnSettings'))
+      .pfSkipVideoPendingOnSettings === true;
+  } catch (_) { return; }
+  if (!pending) return;
+  // Not on top of onboarding, and not while the trial notice is being read.
+  if (document.body.classList.contains('tutorial-active')) return;
+  try {
+    await chrome.storage.local.set({
+      pfSkipVideoPendingOnSettings: false,
+      tutorialSkipVideoShown: true
+    });
+  } catch (_) { /* best-effort */ }
+  // A tick late so the drawer has painted behind it.
+  setTimeout(() => { try { showTutorialSkipVideoModal(); } catch (_) {} }, 250);
+}
+
 function openProfilePanel() {
   const modal = document.getElementById('pfProfileModal');
   const btn = document.getElementById('pfProfileBtn');
@@ -7447,11 +7825,15 @@ function openProfilePanel() {
   modal.setAttribute('aria-hidden', 'false');
   btn?.setAttribute('aria-expanded', 'true');
   document.body.classList.add('pf-profile-modal-open');
-  switchProfileTab('user');
+  // v84: reopen on the tab you were last on rather than always User.
+  // switchProfileTab re-checks the signed-out lock, so a remembered tab that
+  // is no longer allowed falls back to User on its own.
+  switchProfileTab(pfLastProfileTab);
   refreshAuthFromStorage().catch(() => {
     renderProfilePanel().catch(() => {});
   });
   loadDataCollectionModeUI().catch(() => {});
+  void pfMaybeShowDeferredSkipVideo();
   // Ensure the close button is bound (in case initProfilePanel ran before the
   // element existed, or the binding was lost). This is what fixes the X button
   // not closing the panel.
@@ -7576,6 +7958,12 @@ function initProfilePanel() {
       if (tab === 'settings') loadDataCollectionModeUI().catch(() => {});
     });
   });
+  // v83: while Advanced Settings is open the rail is hidden, so this is the
+  // only way back to the other categories.
+  document.getElementById('pfProfileAdvancedBackBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    switchProfileTab('user');
+  });
   refreshProfileTabAvailability();
 
   const localRadio = document.getElementById('pfDataModeLocal');
@@ -7660,7 +8048,7 @@ const finalizeName = async () => {
   $('displayName').style.display = 'inline-block';
   $('editNameBtn').style.display = 'inline-block';
   autoSave();
-  if (currentStep === 2 && !(await isTutorialCompleted())) {
+  if (currentStep === 1 && !(await isTutorialCompleted())) {
     const name = $('displayName').innerText.trim();
     // Tutorial only advances once the user actually edits to a NON-default
     // name — a fresh "Window #N" or "New Window" shouldn't count.
@@ -7710,6 +8098,14 @@ function switchMainTab(tabName, options = {}) {
   if (persist && MAIN_TABS.includes(tabName) && shouldPersistDashboardTabs()) {
     chrome.storage.local.set({ [DASHBOARD_MAIN_TAB_KEY]: tabName }).catch(() => {});
   }
+  // v84 (user spec): the Casual / Research mode switcher belongs to Window
+  // Settings. It sits OUTSIDE .content-box in the markup — flush against the
+  // top of it — so it does not get hidden by the section display swap above
+  // and used to hang over Stats and Customisations, implying those tabs had
+  // modes too. Hidden with .hidden rather than a display write so the
+  // stylesheet keeps control of the flex layout when it comes back.
+  const modeTabs = document.querySelector('.pf-mode-tabs');
+  if (modeTabs) modeTabs.hidden = tabName !== 'window';
   if (tabName === 'stats') {
     render();
     // FIRST visit to Stats & Words (user spec 2026-07): land on the
@@ -7735,22 +8131,362 @@ function switchMainTab(tabName, options = {}) {
 /** One-time Stats & Words landing: force the PVU sub-tab, scroll the chart
  *  into view, and surface a "no data yet" nudge when the logs are empty.
  *  Never runs during the tutorial (step 13 manages its own scroll). */
+/**
+ * v83: banner shown over the sample chart on a user's first Stats visit, so
+ * nobody mistakes the demo week for their own data. Clears on the first
+ * interaction with the chart or on leaving the tab — whichever comes first.
+ */
+function pfShowStatsSampleBanner(daysWithData = 0) {
+  if (document.getElementById('pfStatsSampleBanner')) return;
+  const wrap = $('pvuWeekNavWrap');
+  if (!wrap?.parentNode) return;
+  const bar = document.createElement('div');
+  bar.id = 'pfStatsSampleBanner';
+  bar.setAttribute('role', 'status');
+  bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;'
+    + 'gap:12px;margin:0 0 10px;padding:10px 14px;border-radius:10px;'
+    + 'background:#F0EBF8;border:1px dashed #C4B5E0;color:#4A3D85;'
+    + 'font-size:0.92em;font-weight:600;';
+  const text = document.createElement('span');
+  // Say how far along they actually are — "example data" on its own reads as
+  // if their real usage was thrown away.
+  text.textContent = daysWithData > 0
+    ? `Example week, so you can see what this looks like once it fills up. You have ${daysWithData} `
+      + `day${daysWithData === 1 ? '' : 's'} of real data so far. Tap Got it to see it.`
+    : 'Example week, so you can see what this looks like once it fills up. '
+      + 'Your own stats replace it as you browse.';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'Got it';
+  close.style.cssText = 'flex:0 0 auto;padding:6px 12px;border:none;border-radius:8px;'
+    + 'background:var(--pf-purple-600, #5B4B9F);color:#fff;font-weight:700;'
+    + 'font-size:0.9em;cursor:pointer;';
+  const dismiss = () => {
+    clearTutorialPvuSample();
+    bar.remove();
+    // Remember it, or the sample would come back on every visit until they
+    // happen to accumulate data.
+    chrome.storage.local.set({ pfStatsSampleDismissed: true }).catch(() => {});
+    void renderProductiveVsUnproductive();
+  };
+  close.addEventListener('click', dismiss);
+  bar.appendChild(text);
+  bar.appendChild(close);
+  wrap.parentNode.insertBefore(bar, wrap);
+  // Any real interaction with the chart also means they are done looking.
+  wrap.addEventListener('pointerdown', dismiss, { once: true });
+}
+
+// ── v83: tab-limit step, overflow choice ─────────────────────────────────
+// The user picks what happens to the tabs above their limit. Neither button
+// is required — advancing without choosing falls back to 'close', which is
+// the pre-v83 behaviour (user spec). The choice is applied on Next, not on
+// click, so nothing closes while they are still reading.
+let pfTabLimitChoice = null; // 'close' | 'bank' | null (= not chosen yet)
+
+/**
+ * v83 (user spec): the tab-limit number lives INSIDE the tutor card, not in
+ * the floating widget pinned out on the right. That widget is the real
+ * #tabLimitWrapper from the dashboard header; pinning it left the user
+ * reading a sentence in one place and setting the number in another.
+ *
+ * This renders a plain <select> in the sentence and mirrors it straight into
+ * the real #maxTabLimit input, so every downstream reader — the closer, the
+ * confirm handler, pfApplyTabLimitChoice — keeps reading the same field it
+ * always did. No second source of truth.
+ */
+function pfBuildInlineLimitPicker(current, onChange) {
+  // A native <select> opened a 20-row menu that covered the whole tutorial
+  // (user report). This is a 3-row scroll picker instead: the value above,
+  // the current value, and the value below. Scroll or use the arrow keys.
+  const ROW = 34;
+  const wrap = document.createElement('div');
+  wrap.id = 'pfTutorLimitPicker';
+  wrap.tabIndex = 0;
+  wrap.setAttribute('role', 'spinbutton');
+  wrap.setAttribute('aria-valuemin', '1');
+  wrap.setAttribute('aria-valuemax', String(MAX_TAB_LIMIT));
+  wrap.setAttribute('aria-label', 'Tab limit');
+  wrap.style.cssText = `display:inline-block;vertical-align:middle;margin:0 8px;`
+    + `height:${ROW * 3}px;width:64px;overflow-y:auto;overflow-x:hidden;`
+    + 'scroll-snap-type:y mandatory;border:2px solid var(--pf-purple-300, #C4B5E0);'
+    + 'border-radius:10px;background:#fff;scrollbar-width:none;cursor:ns-resize;'
+    // Faint band marking the middle slot, so it reads as "the one in the
+    // frame is selected" rather than three equal numbers.
+    // Default background-attachment (scroll) pins this to the box, so the
+    // band stays put while the numbers move through it. `local` would scroll
+    // the band with the content, which is exactly backwards.
+    + `background-image:linear-gradient(#fff 0 ${ROW}px,#F0EBF8 ${ROW}px ${ROW * 2}px,#fff ${ROW * 2}px 100%);`;
+
+  // One row of padding top and bottom. Without it the first and last values
+  // could never sit in the middle — the selected value would pin to the top
+  // of the box (user report: 7 showing above 8 and 9 instead of between 6
+  // and 8). With it, scrollTop = (n-1)*ROW centres row n exactly.
+  const list = document.createElement('div');
+  list.style.cssText = `padding:${ROW}px 0;`;
+  for (let n = 1; n <= MAX_TAB_LIMIT; n++) {
+    const row = document.createElement('div');
+    row.dataset.value = String(n);
+    row.textContent = String(n);
+    row.style.cssText = `height:${ROW}px;line-height:${ROW}px;text-align:center;`
+      + 'scroll-snap-align:center;font-weight:700;font-size:1.05em;'
+      + 'transition:color .12s ease,opacity .12s ease;';
+    list.appendChild(row);
+  }
+  wrap.appendChild(list);
+
+  let value = current;
+  const paint = () => {
+    [...list.children].forEach((row) => {
+      const on = Number(row.dataset.value) === value;
+      row.style.color = on ? 'var(--pf-purple-600, #5B4B9F)' : '#9ca3af';
+      row.style.opacity = on ? '1' : '0.55';
+    });
+    wrap.setAttribute('aria-valuenow', String(value));
+  };
+
+  const commit = (v, { scroll = false } = {}) => {
+    const next = Math.max(1, Math.min(MAX_TAB_LIMIT, v));
+    if (next === value && !scroll) return;
+    value = next;
+    paint();
+    const real = $('maxTabLimit');
+    if (real) {
+      real.value = String(next);
+      // Fire input so updateTutorialTabLimitControls and the config save see
+      // it exactly as if the user had typed into the real field.
+      real.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (scroll) wrap.scrollTop = (next - 1) * ROW;
+    onChange?.(next);
+  };
+
+  // Debounced so a flick through ten values re-renders once at rest, not
+  // ten times — each re-render rebuilds the whole step body.
+  let settle = null;
+  wrap.addEventListener('scroll', () => {
+    if (settle) clearTimeout(settle);
+    settle = setTimeout(() => {
+      settle = null;
+      commit(Math.round(wrap.scrollTop / ROW) + 1);
+    }, 90);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); commit(value - 1, { scroll: true }); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); commit(value + 1, { scroll: true }); }
+  });
+
+  paint();
+  // Seat the current value in the middle row. Deferred because scrollTop
+  // does nothing until the element is in the document and has a height.
+  requestAnimationFrame(() => { wrap.scrollTop = (value - 1) * ROW; });
+  return wrap;
+}
+
+async function pfRenderTabLimitChoice(step) {
+  void step;
+  const textEl = $('tutorText');
+  if (!textEl) return;
+  let open = 0;
+  try {
+    const win = await chrome.windows.getCurrent();
+    const tabs = await chrome.tabs.query({ windowId: win.id });
+    open = (tabs || []).length;
+  } catch (_) { open = 0; }
+
+  textEl.replaceChildren();
+
+  // Row 1 — the sentence, with the picker sitting inside it.
+  const pickerRow = document.createElement('div');
+  pickerRow.style.cssText = 'display:flex;align-items:center;justify-content:center;'
+    + 'flex-wrap:wrap;gap:2px;margin-bottom:12px;font-weight:600;';
+  pickerRow.appendChild(document.createTextNode('Set your active tab limit:'));
+
+  // Row 2 — the counts. Rebuilt in place when the picker moves.
+  const body = document.createElement('div');
+
+  // Row 2b — the >9 advisory. Deliberately an advisory, not a block: they can
+  // still pick up to MAX_TAB_LIMIT. It is created once and shown/hidden by
+  // syncCounts so it never causes the card to reflow-jump on every scroll
+  // tick of the picker.
+  const warn = document.createElement('div');
+  warn.id = 'pfTabLimitOverloadNote';
+  warn.hidden = true;
+  warn.style.cssText = 'margin-top:10px;padding:9px 12px;border-radius:9px;'
+    + 'background:#fff4e5;border:1px solid #f0d3a0;color:#8a5a00;'
+    + 'font-size:0.9em;line-height:1.45;text-align:left;';
+  warn.textContent = 'Beyond 9 tabs, cognitive overload and performance '
+    + 'friction begin to rise.';
+  // Row 3 — the two choices.
+  const wrap = document.createElement('div');
+  wrap.id = 'pfTabLimitChoice';
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:14px;text-align:left;';
+
+  const mk = (mode, label, recommended) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.mode = mode;
+    b.style.cssText = 'display:block;width:100%;padding:10px 14px;border-radius:10px;'
+      + 'border:2px solid #d8d0f0;background:#fff;color:#1f2430;font:inherit;'
+      + 'text-align:left;cursor:pointer;line-height:1.4;';
+    const t = document.createElement('span');
+    t.style.cssText = 'display:block;font-weight:700;';
+    t.textContent = recommended ? `${label}  (Recommended)` : label;
+    const s = document.createElement('span');
+    s.className = 'pf-choice-sub';
+    s.style.cssText = 'display:block;font-size:0.88em;color:#6b7280;margin-top:2px;';
+    b.appendChild(t);
+    b.appendChild(s);
+    b.addEventListener('click', () => {
+      pfTabLimitChoice = mode;
+      wrap.querySelectorAll('button').forEach((other) => {
+        const on = other.dataset.mode === mode;
+        other.style.borderColor = on ? 'var(--pf-purple-600, #5B4B9F)' : '#d8d0f0';
+        other.style.background = on ? '#F0EBF8' : '#fff';
+      });
+    });
+    return b;
+  };
+  // v83 (user spec): "Clean up my extra tabs now" removed. Banking is the
+  // only offered outcome, so nothing in onboarding can destroy tabs.
+  const bankBtn = mk('bank', 'Keep my current tabs', false);
+  wrap.appendChild(bankBtn);
+
+  /**
+   * Refresh only the parts that depend on the number. The picker element is
+   * NOT rebuilt — re-rendering it mid-scroll would yank it out from under the
+   * user's finger and lose focus.
+   */
+  const syncCounts = (limit) => {
+    // Advisory above 9 (user spec). Shown on the count row so it sits with
+    // the number they just chose, whether or not anything needs closing.
+    warn.hidden = limit <= 9;
+    const overflow = Math.max(0, open - limit);
+
+    // Captions are rewritten on EVERY call, before the show/hide decision.
+    // They used to be updated only on the overflow>0 path, so scrolling the
+    // picker up to where nothing overflows left the old number frozen in the
+    // button text ("Parks the other 3" with nothing to park).
+    bankBtn.querySelector('.pf-choice-sub').textContent =
+      `The other ${overflow} move into a Banked Tabs list you can reopen from. `
+      + 'They leave your tab bar but are not lost.';
+
+    // NOT `.hidden` — the wrapper carries an inline `display:flex`, which
+    // beats the [hidden] UA rule, so setting the attribute did nothing and
+    // the buttons stayed on screen with nothing to act on.
+    wrap.style.display = overflow === 0 ? 'none' : 'flex';
+
+    if (overflow === 0) {
+      // Nothing to decide. Fall back to 'close' so Next behaves as before,
+      // and clear the pending choice so re-entering with real overflow
+      // re-selects the recommended option rather than inheriting this one.
+      pfTabLimitChoice = null;
+      body.innerHTML = `You have <b>${open}</b> tabs open and your limit is `
+        + `<b>${limit}</b>, so nothing needs to close right now.`;
+      return;
+    }
+    body.innerHTML = `You have <b>${open}</b> tabs open right now. `
+      + `Choose what happens to the extra <b>${overflow}</b>:`;
+    if (!pfTabLimitChoice) bankBtn.click();
+  };
+
+  const startLimit = getTabLimitValueOrNull() ?? 5;
+  pickerRow.appendChild(pfBuildInlineLimitPicker(startLimit, syncCounts));
+  pickerRow.appendChild(document.createTextNode('tabs'));
+  textEl.appendChild(pickerRow);
+  textEl.appendChild(body);
+  textEl.appendChild(warn);
+  textEl.appendChild(wrap);
+  // syncCounts already selects the recommended option when there is overflow
+  // (and hides the buttons when there is not), so no second click here — the
+  // old `if (!wrap.hidden)` check read an attribute that is never set.
+  syncCounts(startLimit);
+}
+
+/**
+ * Apply whatever they chose. Called when leaving the tab-limit step. Falls
+ * back to 'close' so advancing without picking behaves as it always did.
+ */
+async function pfApplyTabLimitChoice() {
+  const limit = getTabLimitValueOrNull() ?? 5;
+  // v83: banking is the ONLY outcome offered in onboarding now, so this
+  // falls back to 'bank'. Falling back to 'close' would silently destroy
+  // tabs via a path the user was never given the option to pick.
+  const mode = pfTabLimitChoice === 'close' ? 'close' : 'bank';
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'pfApplyTabLimitChoice', mode, limit
+    });
+  } catch (_) { /* worker asleep — the closer enforces the limit regardless */ }
+}
+
+// One-shot per page load: stops the empty-chart sample offer recursing, and
+// stops it re-appearing the moment the user dismisses it (dismissing clears
+// the sample, which makes the chart empty again).
+let pfStatsSampleOffered = false;
+
 let pfFirstStatsVisitRan = false;
 async function pfMaybeFirstStatsVisit() {
   if (pfFirstStatsVisitRan) return;
-  pfFirstStatsVisitRan = true; // per-page-load guard; storage guards forever
+  pfFirstStatsVisitRan = true; // per-page-load guard
   try {
     if (document.body.classList.contains('tutorial-active')) return;
-    const stored = await chrome.storage.local.get('pfStatsTabVisited');
-    if (stored.pfStatsTabVisited === true) return;
-    await chrome.storage.local.set({ pfStatsTabVisited: true });
+
+    // v83 (user report: "I didn't see the example"). This used to fire only
+    // on the literal FIRST visit, gated on pfStatsTabVisited. That flag is
+    // one-shot and set on the very first open — so anyone who had already
+    // looked at Stats once (i.e. every existing install) could never see the
+    // sample again, even with an empty chart. The condition is now the thing
+    // we actually care about: is there real data to show yet? That is
+    // self-healing — the sample appears until their own stats replace it.
+    const { pfStatsSampleDismissed } = await chrome.storage.local
+      .get('pfStatsSampleDismissed');
+    if (pfStatsSampleDismissed === true) return;
+
+    // v83: the sample itself is now offered from renderProductiveVsUnproductive,
+    // which is the only place that knows the chart came out empty and so
+    // covers every route to it. All this does is land them on the right
+    // sub-tab and scroll the chart into view.
     switchSubTab('siteTime', { persist: false });
+    await renderProductiveVsUnproductive();
     requestAnimationFrame(() => {
       $('pvuWeekNavWrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-    // The empty PVU graph now shows its full shell with a gray "No data yet"
-    // label (user report 2026-07), so no separate nudge banner is needed.
   } catch (_) { /* best-effort UX sugar */ }
+}
+
+// ── v83: deep-link focus (?focus=<id>) ───────────────────────────────────
+// Which dashboard tab each focusable target lives on, and what to ring. The
+// element rung is not always the one named: #reorderTabsToggle is a hidden
+// checkbox behind a slider, so ringing it would flash nothing — ring its
+// visible row instead.
+const PF_FOCUS_TARGETS = {
+  reorderTabsToggle: { tab: 'window', ring: 'enforcerToggleRow' },
+  // v83: the quick panel's "Open" next to Work Timer.
+  studyBreakBlock: { tab: 'window', ring: 'studyBreakBlock' }
+};
+
+function pfRequestedFocusId() {
+  try {
+    const id = new URLSearchParams(location.search).get('focus');
+    return id && PF_FOCUS_TARGETS[id] ? id : null;
+  } catch (_) { return null; }
+}
+
+/** Scroll the deep-link target into view and flash a ring around it. */
+function pfApplyRequestedFocus() {
+  const id = pfRequestedFocusId();
+  if (!id) return;
+  const cfg = PF_FOCUS_TARGETS[id];
+  const el = document.getElementById(cfg.ring) || document.getElementById(id);
+  if (!el) return;
+  // Two frames so the tab switch above has laid out before we measure.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    el.classList.add('pf-focus-flash');
+    // Long enough to survive the smooth scroll and still read as deliberate.
+    setTimeout(() => el.classList.remove('pf-focus-flash'), 4000);
+  }));
 }
 
 async function restoreDashboardTabs() {
@@ -7761,11 +8497,26 @@ async function restoreDashboardTabs() {
     return;
   }
 
-  let mainTab = 'window';
+  // HISTORY, so nobody flip-flops this a third time:
+  //   v83 made Customisations the default landing tab.
+  //   v83 (asked again) made it ALWAYS win, ignoring the saved tab, because
+  //     every existing user had a saved tab and the change looked inert.
+  //   v84 (this) restores the saved tab. Ignoring it meant the dashboard
+  //     threw away where you were every single time you opened it.
+  // Customisations remains the default for a profile that has never picked
+  // a tab, which is what the original request was actually about.
+  // The pre-tutorial branch above is untouched; the tutorial drives its own
+  // tab sequence, and ?focus= still overrides everything.
+  //
+  // ?focus=<id> overrides the landing tab. The first-time "Tabs reordered"
+  // notice links here with focus=reorderTabsToggle, and landing on the wrong
+  // tab left the user hunting for the control the notice mentioned.
+  const focusId = pfRequestedFocusId();
+  let mainTab = focusId ? (PF_FOCUS_TARGETS[focusId]?.tab || 'window') : 'customizations';
   let subTab = 'keyLogger';
   try {
     const stored = await chrome.storage.local.get([DASHBOARD_MAIN_TAB_KEY, DASHBOARD_SUB_TAB_KEY]);
-    if (MAIN_TABS.includes(stored[DASHBOARD_MAIN_TAB_KEY])) {
+    if (!focusId && MAIN_TABS.includes(stored[DASHBOARD_MAIN_TAB_KEY])) {
       mainTab = stored[DASHBOARD_MAIN_TAB_KEY];
     }
     if (STATS_SUB_TABS.includes(stored[DASHBOARD_SUB_TAB_KEY])) {
@@ -7778,6 +8529,108 @@ async function restoreDashboardTabs() {
   activeSubTab = subTab;
   switchSubTab(subTab, { persist: false });
   switchMainTab(mainTab, { persist: false });
+  pfApplyRequestedFocus();
+  pfApplyRequestedDrawer();
+}
+
+/**
+ * v83: ?drawer=advanced opens the settings drawer straight onto Advanced.
+ * The quick panel links here rather than reimplementing ~300 lines of
+ * advanced controls inside the content script.
+ */
+function pfApplyRequestedDrawer() {
+  let want = null;
+  try { want = new URLSearchParams(location.search).get('drawer'); } catch (_) { return; }
+  if (want !== 'advanced') return;
+  // Deferred so the drawer's own binders have run — openProfilePanel and
+  // switchProfileTab are wired during the same init pass.
+  requestAnimationFrame(() => {
+    try {
+      openProfilePanel?.();
+      switchProfileTab('advanced');
+    } catch (e) { console.warn('[pf-drawer-deeplink] failed', e); }
+  });
+}
+
+/**
+ * Privacy-policy change banner. v84 (user spec: "notify users there was a
+ * change in the privacy policy for the next update, but only those who
+ * already have it installed").
+ *
+ * The install-vs-update split is NOT decided here. worker.js stamps
+ * pfPrivacyPolicyAckVersion with the current PRIVACY_POLICY_VERSION on a
+ * fresh install and deliberately does not touch it on update, so by the time
+ * this runs the presence of a matching stamp already means "this person
+ * installed after the change". A brand-new user therefore never sees it.
+ *
+ * Dismissing writes the current version, so it shows once per policy change
+ * rather than once ever. Bumping PRIVACY_POLICY_VERSION is the only thing
+ * needed to run this again for the next revision.
+ */
+async function pfMaybeShowPrivacyNotice() {
+  const el = document.getElementById('pfPrivacyNotice');
+  if (!el) return;
+  // Not during onboarding. A brand-new install cannot reach this anyway, but
+  // an existing user who reverts the tutorial could, and a banner over an
+  // onboarding step would be a mess.
+  if (document.body.classList.contains('tutorial-active')) return;
+  let ack = null;
+  try {
+    ack = (await chrome.storage.local.get('pfPrivacyPolicyAckVersion'))
+      .pfPrivacyPolicyAckVersion ?? null;
+  } catch (_) {
+    // Storage unreadable: stay quiet rather than showing a notice we cannot
+    // then record as dismissed, which would make it appear on every load.
+    return;
+  }
+  if (ack === PRIVACY_POLICY_VERSION) return;
+  el.hidden = false;
+  const dismiss = document.getElementById('pfPrivacyNoticeDismiss');
+  const close = async () => {
+    el.hidden = true;
+    try {
+      await chrome.storage.local.set({
+        pfPrivacyPolicyAckVersion: PRIVACY_POLICY_VERSION
+      });
+    } catch (_) { /* best-effort; worst case it shows again next load */ }
+  };
+  dismiss?.addEventListener('click', close, { once: true });
+  // Reading the policy counts as acknowledging it.
+  document.getElementById('pfPrivacyNoticeRead')
+    ?.addEventListener('click', () => { void close(); }, { once: true });
+}
+
+/**
+ * Trial-expiry notice. v84 (user spec): when the 30 minute test runs out,
+ * wait for the user to switch tabs, then bring them here and tell them.
+ *
+ * The waiting happens in the worker (pfMaybeHandOffExpiredTrial); by the time
+ * this runs the decision is already made and the URL carries ?trialExpired=1.
+ * That param is the only trigger, so simply opening the dashboard later never
+ * resurfaces the message.
+ */
+function pfMaybeShowTrialExpiredNotice() {
+  const el = document.getElementById('pfTrialExpiredNotice');
+  if (!el) return;
+  let flagged = false;
+  try {
+    flagged = new URLSearchParams(location.search).get('trialExpired') === '1';
+  } catch (_) { return; }
+  if (!flagged) return;
+  el.hidden = false;
+  // Strip the param so a reload does not show it again.
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete('trialExpired');
+    history.replaceState(null, '', url.toString());
+  } catch (_) { /* cosmetic only */ }
+  document.getElementById('pfTrialExpiredSignUp')?.addEventListener('click', () => {
+    el.hidden = true;
+    void signIn();
+  }, { once: true });
+  document.getElementById('pfTrialExpiredDismiss')?.addEventListener('click', () => {
+    el.hidden = true;
+  }, { once: true });
 }
 
 function bindMainTabs() {
@@ -7945,6 +8798,9 @@ function bindLockedControlHint() {
 
 function bootDashboardUiBindings() {
   wakeExtensionServiceWorker();
+  void pfLoadLastProfileTab();
+  void pfMaybeShowPrivacyNotice();
+  pfMaybeShowTrialExpiredNotice();
   bindMainTabs();
   bindStatsSubTabs();
   bindProfilePanelOpenClose();
@@ -7961,6 +8817,8 @@ function bootDashboardUiBindings() {
   bindSectionExplainerDismiss();
   try { void bindReorderTabsToggle(); }
   catch (e) { console.warn('[pf-dashboard] bindReorderTabsToggle failed', e); }
+  try { void bindGroupSimilarTabsToggle(); }
+  catch (e) { console.warn('[pf-dashboard] bindGroupSimilarTabsToggle failed', e); }
   // Safety: if the tutorial-active body class got stuck on from a previous
   // session (interrupted runTutorial, crashed step, etc.), it hides the
   // dev "Test: Revert Tutorial" button via CSS and forces other UI into
@@ -8006,9 +8864,19 @@ function bootDashboardUiBindings() {
   } catch (err) {
     console.warn('[pf-dashboard] bindUnprodReminderDropdown failed', err);
   }
+  try {
+    bindStudyBreakCardToggle();
+  } catch (err) {
+    console.warn('[pf-dashboard] bindStudyBreakCardToggle failed', err);
+  }
+  // v83: masked session replay. Deferred so it never competes with first
+  // paint, and fully self-gating (opt-out + bot flag) — see session_replay.js.
+  setTimeout(() => { void initSessionReplay(); }, 1500);
   restoreDashboardTabs()
     .catch(() => {
-      switchMainTab('window', { persist: false });
+      // v83: match restoreDashboardTabs' own default so a storage failure
+      // does not silently land the user somewhere else.
+      switchMainTab('customizations', { persist: false });
     })
     .finally(() => {
       if (typeof globalThis.pfMarkDashboardUiReady === 'function') {
@@ -8115,6 +8983,12 @@ function resetTutorialDomState() {
   clearTutorialTutorFontOverrides();
   showTutorPinExtensionGuide(false);
   showTutorDataModeGuide(false);
+  // v83: the tutorial left the timer fields freely editable so its steps
+  // could ask the user to type into them. Now that it's over, put the
+  // double-click-to-edit lock back on every one of them.
+  pfRelockAllTimerHms();
+  // v83: same story for the Work Timer card — the tutorial force-opened it.
+  pfSetStudyBreakCardOpen(false);
 }
 
 async function resetTutorialForDevTest() {
@@ -8589,8 +9463,6 @@ async function updateTutorNextState() {
     ok = flags.tutorialNameConfirmed === true;
   } else if (step.unlock === 'tab-limit') {
     ok = flags.tutorialTabLimitConfirmed === true;
-  } else if (step.unlock === 'tab-limit-lock-cycle') {
-    ok = flags.tutorialTabLimitConfirmed === true;
   } else if (step.unlock === 'tab-limit-apply') {
     ok = flags.tutorialTabLimitApplied === true;
   } else if (step.unlock === 'customizations-theme') {
@@ -8616,6 +9488,14 @@ async function updateTutorNextState() {
   updateTutorProgressNote(ok);
 }
 
+// v83: DORMANT. The "Final commitment" step (type "I am fully committed")
+// was removed from onboarding per user spec 2026-07-30, and no step declares
+// that unlock type any more — so this returns false everywhere and the
+// whole commit-typing subsystem below (progress note, letter lighting,
+// keydown handler, tutorialCommitTyped flag) is inert rather than deleted.
+// Left in place because it is entirely driven off the step's `unlock` value,
+// not an index, so it costs nothing and re-adding the step is a one-line
+// change. If you are sure it will never come back, this is safe to strip.
 function isCommitTypingStep(stepIdx = currentStep) {
   return steps[stepIdx]?.unlock === 'commit-typing';
 }
@@ -8643,19 +9523,28 @@ async function applyTutorialStepEffects(idx) {
   document.body.classList.remove('pf-recap-fullscreen-open');
   const step = steps[idx];
   if (!step) return;
-  document.body.classList.toggle('tutorial-step-pvu', idx === 12);
-  document.body.classList.toggle('tutorial-step-wrapped', idx === 13);
-  document.body.classList.toggle('tutorial-step-wipe', idx === 6);
-  document.body.classList.toggle('tutorial-step-ranking', idx === 5);
-  document.body.classList.toggle('tutorial-step-study', idx === 10);
-  document.body.classList.toggle('tutorial-step-work', idx === 9);
-  document.body.classList.toggle('tutorial-step-closer', idx === 7);
+  // v83: the Work Timer card is collapsed by default now. Several steps
+  // highlight things inside it (the work/study timer fields on 9 and 10, the
+  // Reminders dropdown on 10), and a `hidden` body means the highlight has
+  // nothing to point at. Force it open for the whole tutorial; the toggle
+  // re-binds closed on the next dashboard load.
+  pfSetStudyBreakCardOpen(true);
+  // v83: tutorial-step-pvu removed with the Weekly productivity step.
+  document.body.classList.toggle('tutorial-step-wrapped', idx === 4);
+  // v83: tutorial-step-wipe / tutorial-step-ranking removed with their steps.
+  // v83: tutorial-step-study removed with the Reminders step.
+  document.body.classList.toggle('tutorial-step-work', idx === 3);
   // Tab-limit steps (idx 3 = "Tab limit", idx 4 = "Apply your limit"):
   // both target the SAME tabLimitWrapper element, which by default sits in
   // the top-right header — visually too high. This class pins the wrapper
   // lower on the viewport for BOTH steps so they land in the same spot
   // (user spec 2026-07 v17). See body.tutorial-step-tablimit CSS.
-  document.body.classList.toggle('tutorial-step-tablimit', idx === 3 || idx === 4);
+  // v83 (user report: "weirdly this thing showed up"): the tab-limit step no
+  // longer uses the real #tabLimitWrapper — the picker moved inside the tutor
+  // card. But body.tutorial-step-tablimit CSS still lifts that widget out of
+  // the dim and pins it mid-screen, so it floated in beside the card looking
+  // like a stray dialog. Nothing needs the class now; never add it.
+  document.body.classList.remove('tutorial-step-tablimit');
   // Deterministic pins: portal the step's pinned target to <body> + inline
   // pin/ring (tab-limit steps 3/4, ranking step 5, wipe step 6); restore
   // every other portaled target the moment a new step renders (keyed on the
@@ -8666,7 +9555,7 @@ async function applyTutorialStepEffects(idx) {
   if (stepPin) pfPortalPinTutorialTarget(stepPin);
   // Theme step: Professional / Student audience tags above the two owned
   // theme cards render only under this class.
-  document.body.classList.toggle('tutorial-step-theme', idx === 11);
+  // v83: tutorial-step-theme removed with the theme step.
   // UNIVERSAL APPEAR-IN-PLACE (2026-07): hide the box on EVERY step entry.
   // It re-appears (fade, no movement) only after its final coords are set.
   // Steps whose box glided visibly across the pinned highlight kept being
@@ -8684,10 +9573,10 @@ async function applyTutorialStepEffects(idx) {
       window.scrollTo(0, 0);
     });
   }
-  const inTabLimitSteps = idx === 3 || idx === 4;
+  const inTabLimitSteps = idx === 2;
 
   activateTutorialTab(step.tab);
-  setTutorialThemeCarouselMode(idx === 11);
+  setTutorialThemeCarouselMode(false);
   setTutorialCommitUIVisible(isCommitTypingStep(idx));
 
   const b = $('tutorBox');
@@ -8706,9 +9595,7 @@ async function applyTutorialStepEffects(idx) {
   }
 
   $('confirmTabLimit')?.classList.remove('tutorial-active-green', 'tutorial-pulse');
-  // Step 3 ("Press the lock to unlock Confirm"): make the lock button GLOW
-  // so the eye lands on it (user spec 2026-07). Removed on every other step.
-  $('tabLimitLockBtn')?.classList.toggle('pf-tutorial-lock-glow', idx === 3);
+  // v83: the step-3 lock-button glow was removed here along with the button.
   setTutorialNotebookPulse(false);
 
   const nextBtn = $('tutorNext');
@@ -8718,6 +9605,9 @@ async function applyTutorialStepEffects(idx) {
     if (nextBtn) nextBtn.style.display = 'none';
     if (signInBtn) signInBtn.style.display = 'inline-block';
     if (skipBtn) skipBtn.style.display = 'none';
+    // 30-min test (v57): offer the signed-out trial right next to Sign In,
+    // but only while the one-shot trial is still available.
+    void pfSyncTutorTrialButton();
   } else {
     if (nextBtn) {
       nextBtn.style.display = 'inline-block';
@@ -8725,9 +9615,10 @@ async function applyTutorialStepEffects(idx) {
     }
     if (signInBtn) signInBtn.style.display = 'none';
     if (skipBtn) skipBtn.style.display = 'inline-block';
+    pfHideTutorTrialUI();
   }
 
-  if (idx === 3) {
+  if (idx === 2) {
     tutorialTabLimitLocked = false;
     tutorialTabLimitReadyForConfirm = false;
     tutorialTabLimitUserEdited = false;
@@ -8738,6 +9629,7 @@ async function applyTutorialStepEffects(idx) {
       tutorialTabLimitApplied: false
     });
     updateTutorialTabLimitControls();
+    void pfRenderTabLimitChoice(step);
     void updateTutorNextState();
   }
 
@@ -8746,26 +9638,28 @@ async function applyTutorialStepEffects(idx) {
     void updateTutorNextState();
   }
 
-  if (idx === 4) {
-    tutorialTabLimitConfirmClicked = false;
-    tutorialTabLimitLocked = true;
-    tutorialTabLimitReadyForConfirm = true;
-    tutorialTabLimitUserEdited = false;
-    tutorialTabLimitUnlockSeen = true;
-    updateTutorialTabLimitControls();
-    const confirmBtn = $('confirmTabLimit');
-    if (confirmBtn) {
-      confirmBtn.disabled = false;
-      confirmBtn.style.cursor = 'pointer';
-      confirmBtn.style.animation = '';
-      console.info('[pf-tutor-confirm] step 5 active, button now green');
+  // v83: the separate "Apply your limit" step is gone, so its setup block
+  // went with it — it was keyed to idx 4, which is now Closer toggle, and
+  // would have fired on the wrong step.
+  //
+  // AUTO-APPLY (user spec: "if they don't hit confirm just assume it is
+  // whatever they set it to"). Entering the step after Tab limit means they
+  // have left it; if Confirm was never pressed, press it for them so the
+  // number they chose actually takes effect. Guarded on a valid value and on
+  // not having confirmed already, so it can't double-apply.
+  if (idx === 3 && !tutorialTabLimitConfirmClicked) {
+    if (getTabLimitValueOrNull() !== null) {
+      tutorialTabLimitConfirmClicked = true;
+      console.info('[pf-tutor-tablimit] applying tab limit, mode:', pfTabLimitChoice || 'close');
+      // v83: run the overflow choice FIRST. Banking has to capture the tabs
+      // before the closer sees them, or they are gone before they can be
+      // parked.
+      await pfApplyTabLimitChoice();
+      $('confirmTabLimit')?.click();
     }
-    const n = parseInt($('maxTabLimit')?.value, 10) || 5;
-    const textEl = $('tutorText');
-    if (textEl) textEl.innerHTML = step.text.replace('[N]', String(n));
   }
 
-  if (idx === 8) {
+  if (false) { // v83: Floating button step removed
     const win = await chrome.windows.getCurrent().catch(() => null);
     if (win?.id != null) {
       const configResponse = await chrome.runtime.sendMessage({ action: 'getWindowConfig', windowId: win.id });
@@ -8815,7 +9709,7 @@ async function applyTutorialStepEffects(idx) {
     }
   }
 
-  if (idx === 7) {
+  if (idx === 3) {
     tutorialStep8SawOn = false;
     await chrome.storage.local.set({ tutorialCloserToggleCycleDone: false });
     const win = await chrome.windows.getCurrent().catch(() => null);
@@ -8830,51 +9724,12 @@ async function applyTutorialStepEffects(idx) {
     }
   }
 
-  if (idx === 5) {
-    const tabRadio = $('rankingModeTab');
-    if (tabRadio) tabRadio.checked = true;
-    updateWipeTabTimesVisibility();
-    syncRankingModeDemo();
-    void applyRankingModeChange();
-    const rankingMain = $('rankingModeMain');
-    if (rankingMain) rankingMain.style.display = '';
-    void updateTutorNextState();
-  }
+  // v83: the per-step setup blocks for the deleted "Tab ranking" (old
+  // idx 5) and "Reset Tab Ranking Scores" (old idx 6) steps were removed
+  // here. Both features still exist on the dashboard — they are simply no
+  // longer walked through during onboarding.
 
-  if (idx === 6) {
-    await chrome.storage.local.set({ tutorialWipeTabTimesConfigured: false });
-    const tabRadio = $('rankingModeTab');
-    if (tabRadio) tabRadio.checked = true;
-    updateWipeTabTimesVisibility();
-    // Default the reset interval to 30 minutes during the tutorial (user
-    // spec 2026-07 v43: "step 7 instead of auto on one week put it on 30min
-    // not 1 week"). Previously the dropdown fell back to '1w' (1 week) —
-    // the select's last option / the autoSave fallback — so a new user
-    // enabling the feature during onboarding got a once-per-week reset,
-    // which barely affects ranking. 30 minutes keeps scores fresh.
-    const wipeInterval = $('wipeTabTimesInterval');
-    if (wipeInterval) wipeInterval.value = '30m';
-    // Re-run visibility AFTER setting the value so the "Preferred reset
-    // time" row hides correctly for the 30m default (user report 2026-07
-    // v47: it was still visible at step 7 because visibility was computed
-    // from the stale pre-tutorial value).
-    updateWipeTabTimesAtRowState();
-    const wipeCheck = $('enableWipeTabTimes');
-    const wipeSection = $('wipeTabTimesSection');
-    const wipeContainer = $('wipeTabTimesContainer');
-    if (wipeCheck) {
-      wipeCheck.checked = false;
-      if (wipeSection) wipeSection.style.display = 'none';
-    }
-    if (wipeContainer) {
-      wipeContainer.style.display = 'block';
-      wipeContainer.classList.remove('active');
-      wipeContainer.classList.add('inactive');
-    }
-    void updateTutorNextState();
-  }
-
-  if (idx === 11) {
+  if (false) { // v83: theme step removed
     switchMainTab('customizations', { force: true });
     await selectTheme('tutorial_background');
     await chrome.storage.local.set({
@@ -8884,7 +9739,7 @@ async function applyTutorialStepEffects(idx) {
     setTutorialNotebookPulse(true);
   }
 
-  if (idx === 12) {
+  if (false) { // v83: Weekly productivity step removed
     activateTutorialPvuSample();
     // Stamp the activation time so tutorialBlocksPvuHover suppresses hover for
     // the first 3 seconds (user spec 2026-07 v43: "the hover doesn't work for
@@ -8896,10 +9751,10 @@ async function applyTutorialStepEffects(idx) {
   }
 
   setTutorialTimerFieldsLocked(false);
-  if (idx === 9) {
+  if (idx === 3) {
     setTutorialTimerFieldsLocked(true, ['studyTimerBlock']);
     ensureTutorialTimerPreset('unprodTimeLimit', 5 * 60);
-  } else if (idx === 10) {
+  } else if (false) { // v83: Reminders step removed
     setTutorialTimerFieldsLocked(true, ['unprodTimerBlock']);
     ensureTutorialTimerPreset('studyTimeLimit', 25 * 60);
     // Per user report 2026-07: step 11 (Reminders) should land with the
@@ -9023,7 +9878,9 @@ async function runTutorial(options = {}) {
     if (h) {
       h.style.display = 'block';
       h.style.opacity = '1';
-      h.innerText = `Step ${safeStepIdx + 1} of ${TUTORIAL_MAIN_STEPS}`;
+      // v83: visible-step numbering — the skipped "Name your window"
+      // entry must not be counted or the header over-promises by one.
+      h.innerText = `Step ${tutorialDisplayPosition(safeStepIdx)} of ${tutorialVisibleStepCount()}`;
     }
     if (b) {
       b.style.display = 'block';
@@ -9064,6 +9921,7 @@ async function showPostSigninPinStep() {
     $('tutorNext').disabled = false;
     const signInBtn = $('tutorSignIn');
     if (signInBtn) signInBtn.style.display = 'none';
+    pfHideTutorTrialUI();
     const skipBtn = $('tutorSkip');
     if (skipBtn) skipBtn.style.display = 'inline-block';
     b.style.visibility = 'visible';
@@ -9109,6 +9967,7 @@ async function showPostSigninDataModeStep() {
     $('tutorNext').disabled = false;
     const signInBtn = $('tutorSignIn');
     if (signInBtn) signInBtn.style.display = 'none';
+    pfHideTutorTrialUI();
     const skipBtn = $('tutorSkip');
     if (skipBtn) skipBtn.style.display = 'none';
     b.style.visibility = 'visible';
@@ -9188,10 +10047,11 @@ async function showPostSigninStep() {
     } catch (_) { /* body-class fallback already applied */ }
     showTutorPinExtensionGuide(false);
     showTutorDataModeGuide(false);
-    $('tutorNext').innerText = 'Finish';
+    $('tutorNext').innerText = 'Launch Extension';
     $('tutorNext').style.display = 'inline-block';
     const signInBtn = $('tutorSignIn');
     if (signInBtn) signInBtn.style.display = 'none';
+    pfHideTutorTrialUI();
     const skipBtn = $('tutorSkip');
     if (skipBtn) skipBtn.style.display = 'inline-block';
     b.style.visibility = 'visible';
@@ -9231,6 +10091,17 @@ async function showStep(idx) {
   }
   postSigninMode = null;
   const prevStep = steps[currentStep] || null;
+  // v63 (user report: "step 13 graph not higher any more"): the theme-swap
+  // reposition mute is scoped to the step it was armed on. It must NEVER
+  // leak into the NEXT step's entry positioning — at 4500ms (v57) a user
+  // who picked a skin and clicked Next within 4.5s entered the chart step
+  // with the mute still live, which swallowed refreshTutorialStepScroll's
+  // chart-to-top scroll. Clear it on any real step change; same-step
+  // re-entries keep the mute so a live swap stays protected.
+  if (currentStep !== idx) pfTutorRepositionMuteUntil = 0;
+  // v69: leaving the chart step (or entering any step) must never carry a
+  // stale veil. Entering idx 12 re-shows it in the same tick, pre-paint.
+  if (currentStep !== idx) pfHideStep13VeilInstant();
   currentStep = idx;
   await persistTutorialStep(idx);
   await applyTutorialStepEffects(idx);
@@ -9259,7 +10130,7 @@ async function showStep(idx) {
   if (h) {
     h.style.display = 'block';
     h.style.opacity = '1';
-    h.innerText = `Step ${idx + 1} of ${TUTORIAL_MAIN_STEPS}`;
+    h.innerText = `Step ${tutorialDisplayPosition(idx)} of ${tutorialVisibleStepCount()}`;
     h.style.color = '#5B4B9F';
   }
 
@@ -9296,7 +10167,7 @@ async function showStep(idx) {
     if (!target) return { x: (screenW - boxW) / 2, y: centerTutorBoxY(boxH, screenH) };
     const tr = target.getBoundingClientRect();
 
-    if (idx === 12) {
+    if (false) { // v83: Weekly productivity step removed
       const topReserve = getTutorialTopReserve();
       const gap = 12;
       return {
@@ -9317,7 +10188,7 @@ async function showStep(idx) {
     }
 
     if (TUTOR_BELOW_TARGET_STEPS.has(idx)) {
-      const belowGap = idx === 9 ? 20 : 28;
+      const belowGap = idx === 3 ? 20 : 28;
       return tutorCoordsBelowTarget(tr, boxW, clampX, clampY, belowGap);
     }
 
@@ -9340,7 +10211,7 @@ async function showStep(idx) {
       return tutorCoordsBesideTargetRight(tr, boxW, boxH, clampX, clampY, pad, screenW, screenH);
     }
 
-    if (idx === 8) {
+    if (false) { // v83: Floating button step removed
       const gap = 16;
       const buttonRect = getTutorialFloatingButtonHighlightEl()?.getBoundingClientRect() || tr;
       // 2026-07 v4 (user: "still too far from the button"): ALWAYS snuggle
@@ -9405,7 +10276,7 @@ async function showStep(idx) {
       scrollForTutorBelowTarget(targetEl, b, 28, tutorBelowScrollOptions(idx));
     } else if (TUTOR_ABOVE_TARGET_STEPS.has(idx) && targetEl) {
       scrollForTutorAboveTarget(targetEl, b);
-    } else if (idx === 12 && targetEl) {
+    } else if (false) { // v83: Weekly productivity step removed
       scrollTutorialHighlightBelowHeaderTutor(targetEl, b, TUTOR_PVU_CHART_GAP);
     }
     setTutorTarget(calculateTargetCoords(), { animate: true });
@@ -9462,11 +10333,11 @@ async function showStep(idx) {
   ensureTutorBoxInWrapper();
 
   $('tutorTitle').innerText = s.title;
-  if (idx !== 4) {
-    const lateFlags = idx === 11
+  if (idx !== 2) {
+    const lateFlags = false
       ? await chrome.storage.local.get('tutorialSelectedNotebook')
       : {};
-    if (idx === 11 && lateFlags.tutorialSelectedNotebook === true) {
+    if (false) { // v83: theme step removed
       $('tutorText').innerText = TUTORIAL_NOTEBOOK_SELECTED_TEXT;
     } else {
       $('tutorText').innerHTML = s.text;
@@ -9489,7 +10360,7 @@ async function showStep(idx) {
   }
 
   let target = s.target ? $(s.target) : null;
-  if (idx === 8) {
+  if (false) { // v83: Floating button step removed
     target = getTutorialFloatingButtonHighlightEl();
   }
   const skipScroll = TUTORIAL_FIXED_TARGETS.has(s.target);
@@ -9515,7 +10386,7 @@ async function showStep(idx) {
   // a transitional state during font load. Disabling motion tracking for
   // idx 11 entirely means the box is positioned once on step entry and
   // stays put — no more weird movement during theme swaps.
-  const trackTargetMotion = !(idx === 8 || idx === 11 || idx === 12);
+  const trackTargetMotion = true;
   const startRafLoop = () => {
     if (!trackTargetMotion) return;
     const rafLoop = () => {
@@ -9559,7 +10430,7 @@ async function showStep(idx) {
       if (h) h.style.opacity = '1';
     };
     const highlightTarget = (immediate = false) => {
-      if (idx === 8) {
+      if (false) { // v83: Floating button step removed
         applyTutorialFloatingButtonHighlight();
         return;
       }
@@ -9581,7 +10452,7 @@ async function showStep(idx) {
         if (isWideTarget) target.classList.add(wideHighlightClass);
       }, revealDelayMs + 200);
     };
-    const shouldBatchStepRender = TUTOR_BELOW_TARGET_STEPS.has(idx) || TUTOR_ABOVE_TARGET_STEPS.has(idx) || TUTOR_STACK_CENTERED_STEPS.has(idx) || idx === 12 || TUTOR_BESIDE_TARGET_STEPS.has(idx) || TUTOR_BESIDE_TARGET_RIGHT_STEPS.has(idx);
+    const shouldBatchStepRender = TUTOR_BELOW_TARGET_STEPS.has(idx) || TUTOR_ABOVE_TARGET_STEPS.has(idx) || TUTOR_STACK_CENTERED_STEPS.has(idx) || false || TUTOR_BESIDE_TARGET_STEPS.has(idx) || TUTOR_BESIDE_TARGET_RIGHT_STEPS.has(idx);
     if (skipScroll) {
       highlightTarget(sameTargetAsPrevious);
       requestAnimationFrame(() => positionTutorBox(isFirstTutorRender));
@@ -9630,7 +10501,7 @@ async function showStep(idx) {
             // Windows widened to 0.3s–4s: first-install stalls (cold worker,
             // font downloads) can take seconds, which is why the earlier
             // 280/800ms passes missed (user report: "still broken").
-            if (idx === 3 || idx === 4 || idx === 11) {
+            if (idx === 2) {
               for (const ms of [300, 1000, 2000, 4000]) {
                 setTimeout(() => {
                   if (currentStep !== idx || !target.isConnected) return;
@@ -9646,19 +10517,18 @@ async function showStep(idx) {
                     // WATCHDOG (tab-limit steps): verify the pinned target is
                     // genuinely visible; if not, force it and log WHY so the
                     // next report tells us the true root cause.
-                    if (idx === 3 || idx === 4) pfEnsureTabLimitStepVisible(target);
                     // WATCHDOG (theme step): after an exit + extension
                     // update + resume, the highlight vanished entirely
                     // (user report 2026-07) — the customizations tab wasn't
                     // re-activated, leaving the carousel display:none.
                     // Verify and force it back.
-                    if (idx === 11) pfEnsureThemeStepVisible(target);
+
                     // COLLAPSED-RECT GUARD (2026-07), AFTER the watchdog so a
                     // genuinely hidden carousel still gets force-shown first:
                     // during the step-12 theme swap the carousel re-renders
                     // (rect 0×0) — a settle pass firing right then centered
                     // the box. Skip; a later pass / raf watcher re-seats it.
-                    if (idx === 11) {
+                    if (false) { // v83: theme step removed
                       const setRect = target.getBoundingClientRect();
                       if (setRect.width < 5 || setRect.height < 5) return;
                       // THEME-SWAP MUTE GUARD (user report 2026-07 v43: "its
@@ -9684,7 +10554,7 @@ async function showStep(idx) {
             }
             return;
           }
-          if (idx === 12) {
+          if (false) { // v83: Weekly productivity step removed
             b.style.visibility = 'hidden';
             b.style.opacity = '0';
             // 2026-07: sit "a bit below the 13/16" — calculateTargetCoords'
@@ -9693,44 +10563,64 @@ async function showStep(idx) {
             // the box up OVER the header.
             const c12 = calculateTargetCoords();
             setTutorTarget({ x: c12.x, y: c12.y }, { animate: false });
+            // v68/v69 (user: "still glitching" / "now it glitches down"):
+            // measurements are half-settled at entry, so ANY visible scroll
+            // in the first beat reads as a glitch no matter when it fires.
+            // Final design: a full-screen veil covers the dashboard from
+            // this very tick (before paint), the 300ms pass does the one
+            // authoritative scroll BEHIND it, then the veil fades out over
+            // the already-settled layout. Nothing ever visibly moves.
+            pfShowStep13Veil();
             requestAnimationFrame(() => {
-              // Use the SAME tuned chart gap as every refresh path — the
-              // entry call used the default (+12) while refreshes used
-              // TUTOR_PVU_CHART_GAP (-260), so the chart visibly jumped on
-              // first open (user report 2026-07: "weird formatting glitch
-              // when I first opened it").
-              scrollTutorialHighlightBelowHeaderTutor(target, b, TUTOR_PVU_CHART_GAP);
-              // NO reveal here (2026-07: "box moves down for a second at the
-              // start"). The header is still re-measuring at entry (font +
-              // progress re-render), so this early snap can land LOW; the
-              // 300ms settle pass below re-derives the final Y and is the
-              // one that fades the box in — any correction happens while
-              // the box is still invisible.
               lastTutorRect = JSON.stringify(target.getBoundingClientRect());
             });
-            // Settle re-passes: first-open layout lands late (chart render,
-            // fonts) — re-seat chart + box once things stabilize.
-            for (const ms of [300, 1000]) {
-              setTimeout(() => {
-                if (currentStep !== 12 || !target.isConnected) return;
-                // Tutorial closed since scheduling → never re-scroll / re-show.
-                if (!$('tutorialOverlay')?.classList.contains('active')) return;
+            // v70 (user: "it was in the right spot for a second then moved
+            // back down"): the fixed 300ms/1000ms passes were the culprit —
+            // the tutor box's height settles LATE (fonts), so the 300ms
+            // pass placed the chart against a short box and the 1000ms pass
+            // re-measured a taller one and visibly dragged everything down.
+            // Replaced with a STABILITY WAIT behind the veil: poll the two
+            // live inputs (header reserve + box height) every 150ms and
+            // only when two consecutive reads AGREE apply scroll + box +
+            // reveal, exactly once, then fade the veil. No later scheduled
+            // pass exists to move anything again. Hard cap 1200ms so a
+            // never-stable layout still resolves; veil safety timer (1.6s)
+            // backstops the backstop.
+            {
+              let lastKey = null;
+              let agreed = false;
+              let elapsedMs = 0;
+              const applyFinalStep13 = () => {
                 try {
                   scrollTutorialHighlightBelowHeaderTutor(target, b, TUTOR_PVU_CHART_GAP);
-                  // Only re-snap the box if it's actually off (>6px) — the
-                  // header re-measures slightly as fonts settle, and an
-                  // unconditional re-snap made the box visibly bounce
-                  // down-then-up (user report 2026-07).
                   const cs = calculateTargetCoords();
-                  const curY = tutorMotionTarget ? tutorMotionTarget.y : null;
-                  if (curY == null || Math.abs(cs.y - curY) > 6) {
-                    setTutorTarget({ x: cs.x, y: cs.y }, { animate: false });
-                  }
+                  setTutorTarget({ x: cs.x, y: cs.y }, { animate: false });
                   b.style.visibility = 'visible';
                   b.style.opacity = '1';
                   lastTutorRect = JSON.stringify(target.getBoundingClientRect());
                 } catch (_) { /* best-effort */ }
-              }, ms);
+                pfFadeStep13Veil();
+              };
+              const stabilityPoll = setInterval(() => {
+                if (true || !target.isConnected
+                  || !$('tutorialOverlay')?.classList.contains('active')) {
+                  clearInterval(stabilityPoll);
+                  pfFadeStep13Veil();
+                  return;
+                }
+                elapsedMs += 150;
+                let key = null;
+                try {
+                  const { height: bh } = getTutorBoxLayoutSize(b);
+                  key = `${getTutorialTopReserve()}|${Math.round(bh)}`;
+                } catch (_) { /* keep polling */ }
+                agreed = key != null && key === lastKey;
+                lastKey = key;
+                if (agreed || elapsedMs >= 1200) {
+                  clearInterval(stabilityPoll);
+                  applyFinalStep13();
+                }
+              }, 150);
             }
           } else if (TUTOR_ABOVE_TARGET_STEPS.has(idx)) {
             requestAnimationFrame(() => {
@@ -9869,7 +10759,7 @@ async function showStep(idx) {
     // box "flying in from top-left" (which is the base translate3d(0,0,0)
     // the transition reads from getBoundingClientRect if the box was mid-
     // animation on the prior step). Applies especially to step 14 → 15
-    // (Final commitment → Sign in). User spec 2026-07 v17.
+    // (was Final commitment → Sign in before v83 removed that step).
     const prevWasCentered = !prevStep?.target;
     // hiddenEntry: universal appear-in-place hid the box at step entry —
     // snap to center and fade in there instead of gliding while fading.
@@ -9895,6 +10785,7 @@ async function finishTutorial({ playReveal = false, showTutorialSkipVideo = fals
   // visibility during the gap. (User report 2026-07 v8: text box lingered
   // into the reveal animation.)
   if (tutorRafId) { cancelAnimationFrame(tutorRafId); tutorRafId = null; }
+  pfHideStep13VeilInstant(); // v69: never let the veil outlive the tutorial
   const _tutorBoxEarly = $('tutorBox');
   if (_tutorBoxEarly) {
     _tutorBoxEarly.style.opacity = '0';
@@ -9924,6 +10815,32 @@ async function finishTutorial({ playReveal = false, showTutorialSkipVideo = fals
     await showPostSigninDataModeStep();
     return;
   }
+
+  // ── FLASH FIX (user report 2026-07 v84: "once they hit finish something
+  //    weird happens, there seems to be a flash") ──────────────────────────
+  // The card and its wrapper were hidden synchronously on entry, but
+  // #tutorialOverlay (the dark dim layer behind the card) was not torn down
+  // until roughly seventy lines and two awaits later. The browser paints
+  // during those awaits, so there was a stretch of frames showing the dim
+  // overlay alone over the dashboard, with nothing on it, which then
+  // vanished. That is the flash: not an animation, just an intermediate
+  // state nobody meant to render.
+  //
+  // The overlay teardown has to happen HERE and not earlier, because the
+  // data-mode branch above returns with the tutor box still in use and needs
+  // the overlay behind it. Past this point the tutorial is definitely over,
+  // so everything comes down together in one synchronous block, before any
+  // further await. The duplicate teardown further down is harmless and left
+  // in place as a backstop for the !playReveal path.
+  const _overlayEarly = $('tutorialOverlay');
+  if (_overlayEarly) {
+    _overlayEarly.classList.remove('active', 'revealed');
+    _overlayEarly.style.clipPath = '';
+    _overlayEarly.style.webkitClipPath = '';
+  }
+  document.body.classList.remove('tutorial-active');
+  document.body.style.overflow = '';
+  document.documentElement.style.overflow = '';
   cleanupTutorialExtras();
   clearTutorialHighlight();
 
@@ -9942,11 +10859,21 @@ async function finishTutorial({ playReveal = false, showTutorialSkipVideo = fals
     document.body.classList.remove('tutorial-finish-step');
   }
 
+  // v83 (user spec "remove the animation that shows the dashboard — it
+  // should just take them to the website"): the iris reveal used to sweep
+  // the dashboard into view on Finish. The user is being sent straight to a
+  // real web page for the floating-button walkthrough now, so animating a
+  // dashboard they are about to leave just delayed the handoff. The overlay
+  // is torn down immediately instead. playTutorialIrisReveal() is left in
+  // the file, unused, so restoring this is a one-line change.
   if (playReveal) {
+    // v83 (user spec): no transition at all. This has now been an iris
+    // reveal, then a dark fade, and both were animating a dashboard the user
+    // is about to leave — Launch Extension hands them straight to their last
+    // tab. Tear the overlay down immediately and get out of the way. No
+    // await here either: a delay would just postpone the handoff.
     $('tutorialContentWrapper').style.display = 'none';
     document.body.style.overflow = '';
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await playTutorialIrisReveal();
   }
 
   await chrome.storage.session.set({ tutorialActive: false });
@@ -9991,6 +10918,17 @@ async function finishTutorial({ playReveal = false, showTutorialSkipVideo = fals
     onboardingRequired: false,
     ...finishStampWrite
   });
+  // v58: trial expectation message — fires here, at TRUE tutorial
+  // completion, i.e. after the iris reveal when one played (the awaits
+  // above sequence us behind playTutorialIrisReveal) and immediately on
+  // no-animation completions. No-op unless a 30-minute test is live.
+  void pfMaybeNotifyTrialSelfClassify();
+  // v83 (user spec): the floating-button demo moved OUT of the tutorial and
+  // onto a real page. Arm it and hand the user to their latest normal tab —
+  // the worker picks the tab because only it can see lastAccessed across
+  // the window. Deliberately not awaited: a failure here must never block
+  // the rest of the finish sequence.
+  void chrome.runtime.sendMessage({ action: 'pfStartButtonWalkthrough' }).catch(() => {});
   // Kick the lock sync so the countdown starts immediately and the row
   // switches to "Unlocks in 1min" without waiting for the next tick.
   try { void pfSyncAdvancedSettingsLock(); } catch (_) { /* best-effort */ }
@@ -10033,7 +10971,16 @@ async function finishTutorial({ playReveal = false, showTutorialSkipVideo = fals
   ]);
 
   if (shouldShowSkipVideo) {
-    showTutorialSkipVideoModal();
+    // v84 (user spec): "if they press skip tutorial still show the video
+    // thing, but only when they open up the settings for the first time."
+    //
+    // Deferred rather than shown now. Someone who just pressed Skip has said
+    // as plainly as they can that they do not want to be taught anything
+    // this second, and answering that with a video is the reason people
+    // uninstall. It waits until they go looking in Settings, which is the
+    // moment they actually want to know how the thing works.
+    await chrome.storage.local.set({ pfSkipVideoPendingOnSettings: true })
+      .catch(() => {});
   }
   await updateRankingModeDemoVisibility();
   void refreshSettingDemoVisibility();
@@ -10158,12 +11105,11 @@ function initTutorialInteractionHandlers() {
   $('pfTutorialDemoProductive')?.addEventListener('click', async (e) => {
     triggerTutorialDemoRipple(demoCard, e.currentTarget);
     tutorialUserClickedProductive = true;
-    if (currentStep === 1) {
-      const textEl = $('tutorText');
-      if (textEl) {
-        textEl.innerText = "Great. Click Next to move on.";
-      }
-    }
+    // v83 (user spec): no "Great. Click Next to move on." replacement. Next is
+    // enabled from the moment this step opens now, so nothing needs
+    // announcing — and overwriting the step's own copy the instant they
+    // clicked meant the explanation of what the card does vanished before
+    // most people had read it.
     await chrome.storage.local.set({ tutorialUserClickedProductive: true });
     await updateTutorNextState();
   });
@@ -10176,16 +11122,16 @@ function initTutorialInteractionHandlers() {
     }
   });
 
+  // v83 (user spec): the closer step no longer runs an on-then-off drill. It
+  // used to overwrite the step copy with "Good, now switch it off." and then
+  // "Great. Now click Next to move on." — a two-step chore the user never
+  // asked for, which also destroyed the explanation of what the toggle does.
+  // Next is enabled from step entry, so the toggle is just a toggle: flip it
+  // or don't. The storage flag is still written for the old unlock gate's
+  // sake, but nothing reads it to block progress any more.
   $('enforcerToggle')?.addEventListener('change', async (e) => {
-    if (currentStep !== 7) return;
-    const isOn = e.target.checked === true;
-    const textEl = $('tutorText');
-    if (isOn) {
-      tutorialStep8SawOn = true;
-      if (textEl) textEl.innerText = 'Good, now switch it off.';
-      await chrome.storage.local.set({ tutorialCloserToggleCycleDone: false });
-    } else if (tutorialStep8SawOn) {
-      if (textEl) textEl.innerText = 'Great. Now click Next to move on.';
+    return; // v83: Closer toggle step removed.
+    if (e.target.checked !== true) {
       await chrome.storage.local.set({ tutorialCloserToggleCycleDone: true });
       await updateTutorNextState();
     }
@@ -10308,8 +11254,8 @@ function initTutorialInteractionHandlers() {
         holdRafId = null;
         tutorialMockIsOn = !tutorialMockIsOn;
         renderMockState();
-        await syncEnforcerToggleLimits(tutorialMockIsOn, { persist: currentStep !== 8 });
-        if (currentStep === 8) {
+        await syncEnforcerToggleLimits(tutorialMockIsOn, { persist: true });
+        if (false) { // v83: Floating button step removed
           const textEl = $('tutorText');
           if (tutorialMockIsOn && tutorialMockStage === 1) {
             tutorialStep9SawOn = true;
@@ -10370,7 +11316,7 @@ function initTutorialInteractionHandlers() {
       // 2026-07. The body class is the strongest kill switch (see the
       // pf-step9-pulse-off CSS rule); we also add pf-pulse-done for
       // belt-and-braces in case some path re-toggles the body class.
-      if (currentStep === 8) {
+      if (false) { // v83: Floating button step removed
         tutorialStep9BtnPulseStopped = true;
         document.body.classList.add('pf-step9-pulse-off');
         try {
@@ -10399,7 +11345,7 @@ function initTutorialInteractionHandlers() {
   }
 
   $('customizationsTab')?.addEventListener('click', async () => {
-    if (currentStep !== 11) return;
+    return; // v83: theme step removed.
     await chrome.storage.local.set({ tutorialCustomizationsOpened: true });
     const stored = await chrome.storage.local.get('selectedTheme');
     syncTutorialTutorFontFromTheme(stored.selectedTheme || 'tutorial_background', 11);
@@ -10476,6 +11422,9 @@ async function onTutorialSkipClick() {
   if (!confirmed) return;
 
   await recordTutorialSkipped({ showVideoNow: false });
+  // v59: land skippers on the sign-in step with just the buttons — the
+  // notice + Start only appear when they click "Test for 30 min"
+  // (supersedes the v57 auto-reveal, per user spec).
   await showStep(signInStepIdx);
 }
 
@@ -10728,7 +11677,7 @@ async function applyTabLimitConfirm(win, tabLimit, tutorialIncomplete, confirmBt
   // post-revert Confirm swept once but ongoing enforcement stayed disabled
   // ("Tutorial active") — limit 5 yet 6 tabs stayed open.
   await chrome.storage.local.set({ tutorialTabLimitApplied: true });
-  if (tutorialIncomplete && currentStep === 4) {
+  if (tutorialIncomplete && currentStep === 2) {
     tutorialTabLimitConfirmClicked = true;
     confirmBtn?.classList.remove('tutorial-pulse');
     // Confirmation feedback — matches the pattern used on the earlier
@@ -10789,11 +11738,11 @@ async function applyTabLimitConfirm(win, tabLimit, tutorialIncomplete, confirmBt
   }
 }
 
-// ── Tab-limit hard max (10) with an honest popup (user spec 2026-07) ───────
-// Typing anything above 10 clamps the field and pops a gentle explainer:
-// 10 is the ceiling, it's more manageable than it sounds, and — highlighted
-// in red — which tabs get kept. Works on the dashboard AND on the tutorial
-// tab-limit steps (same input).
+// ── Tab-limit hard max with an honest popup (user spec 2026-07) ────────────
+// Typing anything above MAX_TAB_LIMIT clamps the field and pops a gentle
+// explainer. The number is interpolated from the constant, never hardcoded,
+// so raising the cap (10 → 20, 2026-07-30) never leaves stale copy behind.
+// Works on the dashboard AND on the tutorial tab-limit steps (same input).
 function pfShowTabLimitMaxPopup(keptCount) {
   void keptCount; // arg kept for call-site compat; "keep N tabs" line removed v22
   document.getElementById('pfTabLimitMaxPopup')?.remove();
@@ -10808,7 +11757,7 @@ function pfShowTabLimitMaxPopup(keptCount) {
   const msg = document.createElement('p');
   msg.style.cssText = 'margin:0 0 10px;';
   // Reworded copy 2026-07 v22, em-dash removed v23.
-  msg.textContent = "This might feel weird but we've capped the tab limit at 10. "
+  msg.textContent = `This might feel weird but we've capped the tab limit at ${MAX_TAB_LIMIT}. `
     + "It sounds tight, but give it a few days. You'll stop noticing the cap "
     + "is even there.";
   const ok = document.createElement('button');
@@ -10910,8 +11859,15 @@ async function bindAnalyticsOptOutToggle() {
   } catch (_) { toggle.checked = true; }
   toggle.addEventListener('change', async () => {
     try {
-      if (toggle.checked) await pfAnalyticsOptIn();
-      else await pfAnalyticsOptOut();
+      if (toggle.checked) {
+        await pfAnalyticsOptIn();
+      } else {
+        await pfAnalyticsOptOut();
+        // v83: the same switch governs session replay. Stop recording the
+        // moment they opt out — waiting for a reload would keep capturing
+        // after they said no.
+        stopSessionReplay();
+      }
     } catch (err) {
       console.warn('[pf-analytics] toggle failed', err);
     }
@@ -12585,11 +13541,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if ($('enforcerToggle')) {
     $('enforcerToggle').onchange = async function() {
-      // During the "Closer toggle" tutorial step (currentStep === 7), let the
+      // During the "Closer toggle" tutorial step (currentStep === 3), let the
       // tutorial's own ON→OFF cycle run unimpeded. Running the timer/spend lock
       // checks first (which call this.checked = !this.checked) would revert the
       // toggle the instant the user turns it ON, breaking the step.
-      if (currentStep === 7) {
+      if (false) { // v83: Closer toggle step removed
         lastRenderedLimEn = this.checked === true;
         return;
       }
@@ -12679,7 +13635,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           updates: { limitsEnabled: this.checked }
         });
       }
-      if (currentStep === 4) updateTutorNextState();
+      if (currentStep === 2) updateTutorNextState();
     };
   }
   const enforcerWrapper = document.getElementById('enforcerWrapper');
@@ -12707,7 +13663,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!['newUnprodKeyword', 'newProdKeyword', 'maxTabLimit', 'pauseDuration', 'enablePause', 'enableLimits', 'enforcerToggle'].includes(el.id)) {
       el.onchange = async () => {
         await autoSave();
-        if (currentStep === 4) updateTutorNextState();
+        if (currentStep === 2) updateTutorNextState();
       };
     }
   });
@@ -13077,10 +14033,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // store and was the root cause of "time never appears".
     syncTimerHiddenFromHms('bankFocusTimeModeB');
     syncTimerHiddenFromHms('bankEarnedTimeModeB');
-    const focusHms = ($('bankFocusTimeModeB') || {}).value || '0:15:00';
+    const focusHms = ($('bankFocusTimeModeB') || {}).value || '0:30:00';
     const focusParts = String(focusHms).split(':').map((n) => Math.max(0, Math.floor(Number(n) || 0)));
     while (focusParts.length < 3) focusParts.unshift(0);
-    const earnHms = ($('bankEarnedTimeModeB') || {}).value || '0:05:00';
+    const earnHms = ($('bankEarnedTimeModeB') || {}).value || '0:10:00';
     const earnParts = String(earnHms).split(':').map((n) => Math.max(0, Math.floor(Number(n) || 0)));
     while (earnParts.length < 3) earnParts.unshift(0);
     // 1-second floor: user reported the previous 60s floor rounded sub-minute
@@ -14109,7 +15065,7 @@ async function startUnprodTimer() {
     return;
   }
   const windowName = await getFriendlyWindowNameForTimer(wid);
-  if (currentStep === 9) ensureTutorialTimerPreset('unprodTimeLimit', 5 * 60);
+  if (currentStep === 3) ensureTutorialTimerPreset('unprodTimeLimit', 5 * 60);
   syncTimerHiddenFromHms('unprodTimeLimit');
   const raw = readTimerHmsString('unprodTimeLimit');
   let durationSec = 0;
@@ -14416,6 +15372,60 @@ function bindAdvancedEarnSpendChevron() {
  * preference). Defaults to enabled=true, threshold=30, suggest=5, and
  * dropdownOpen=true on first ever load so users discover the feature.
  */
+// ── v83: the Work Timer card collapses to its title (user spec) ───────────
+// Body visibility is driven off `hidden`, not a CSS class, so anything
+// inside is genuinely out of the accessibility tree and the tab order while
+// collapsed. The tutorial force-opens it: step 10 highlights
+// #unprodReminderDropdown and the work/study steps target the timer fields,
+// all of which live inside #studyBreakBody.
+function pfSetStudyBreakCardOpen(open) {
+  const btn = $('studyBreakToggle');
+  const body = $('studyBreakBody');
+  if (!btn || !body) return;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  body.hidden = !open;
+}
+
+function bindStudyBreakCardToggle() {
+  const btn = $('studyBreakToggle');
+  if (!btn || btn.dataset.cardToggleBound === '1') return;
+  btn.dataset.cardToggleBound = '1';
+  btn.addEventListener('click', () => {
+    pfSetStudyBreakCardOpen(btn.getAttribute('aria-expanded') !== 'true');
+  });
+  // v83 (user spec): clicking the card opens it while collapsed, and
+  // clicking the SAME place again closes it. "The same place" is the title
+  // row — when collapsed that row is the only thing on screen, so whatever
+  // the user clicked to open is inside it.
+  //
+  // Clicks in the BODY stay one-way (open only). If a body click also
+  // toggled, every click on a control inside would shut the panel the user
+  // is working in. The help "?" is excluded so it can open its own panel.
+  const card = $('studyBreakBlock');
+  card?.addEventListener('click', (event) => {
+    if (event.target.closest('.pf-inline-help-btn')) return;
+    // The toggle button has its own listener; don't double-fire.
+    if (event.target.closest('#studyBreakToggle')) return;
+    // v84 (user report: clicking the same spot again did not shut it).
+    // The close area used to be narrower than the open area. Opening
+    // accepted a click ANYWHERE on the collapsed card — including the
+    // card's own padding band around the title — but closing only
+    // accepted `.pf-card-toggle-row`, so a click in that padding opened
+    // the card and then did nothing on the way back.
+    //
+    // The two areas are now defined by one rule instead of two: anything
+    // OUTSIDE the body toggles. While collapsed the body is `hidden`, so
+    // no click can land in it and every click opens; while open, the
+    // header row and the padding around it all close. Clicks inside the
+    // body stay one-way, or every control in there would shut the panel
+    // the user is working in.
+    if (event.target.closest('#studyBreakBody')) return;
+    pfSetStudyBreakCardOpen(btn.getAttribute('aria-expanded') !== 'true');
+  });
+  // Starts closed unless the tutorial is already running.
+  pfSetStudyBreakCardOpen(document.body.classList.contains('tutorial-active'));
+}
+
 function bindUnprodReminderDropdown() {
   const toggle = $('unprodReminderToggle');
   const panel = $('unprodReminderPanel');
@@ -14490,12 +15500,28 @@ function bindUnprodReminderDropdown() {
     }
   })();
 
+  // v82 (user report: "the reminder isn't changing when the reminder is
+  // updated"). After each prompt the worker snoozes reminders for a whole
+  // threshold's worth of minutes (unprodReminderSnoozedUntil, see
+  // maybeFireUnprodReminder). That snooze survived a settings change, so
+  // editing the threshold, the suggested break, "and neutral", or the dismiss
+  // phrase appeared to do nothing until the OLD snooze ran out — up to 12h on
+  // a long threshold. Clearing it on a behavioural change makes the new
+  // settings take effect on the next check. dropdownOpen is cosmetic and is
+  // deliberately excluded so opening/closing the panel never unsnoozes.
+  const REMINDER_BEHAVIOUR_KEYS = [
+    'enabled', 'thresholdMin', 'suggestMin', 'includeNeutral', 'dismissPhrase',
+  ];
+
   const save = async (partial) => {
     try {
       const stored = await chrome.storage.local.get(STORAGE_KEY);
       const current = { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
       const next = { ...current, ...partial };
       await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      if (REMINDER_BEHAVIOUR_KEYS.some((k) => current[k] !== next[k])) {
+        await chrome.storage.local.remove('unprodReminderSnoozedUntil');
+      }
     } catch (_) { /* best-effort persistence */ }
   };
 
@@ -14727,8 +15753,8 @@ function loadModeBEarnSpendSettings(config = {}) {
   if (!everConfigured && $('enableBankedTimeModeB')) {
     $('enableBankedTimeModeB').checked = false;
   }
-  writeTimerHmsFromString('bankFocusTimeModeB', config.bankFocusStr || config.bankFocusTime || '0:15:00');
-  writeTimerHmsFromString('bankEarnedTimeModeB', config.bankEarnedStr || config.bankEarnedTime || '0:05:00');
+  writeTimerHmsFromString('bankFocusTimeModeB', config.bankFocusStr || config.bankFocusTime || '0:30:00');
+  writeTimerHmsFromString('bankEarnedTimeModeB', config.bankEarnedStr || config.bankEarnedTime || '0:10:00');
   refreshModeBAiSourceNote();
   // Sync the gray-out to the loaded checkbox state so the dashboard opens with
   // the conflicting controls already locked when advanced earn was left on.
@@ -15033,7 +16059,7 @@ async function startStudyTimer() {
     showTutorialTimerStartBlockedNote();
     return;
   }
-  if (currentStep === 10) ensureTutorialTimerPreset('studyTimeLimit', 25 * 60);
+  // v83: Reminders step removed — no studyTimeLimit preset needed.
   syncTimerHiddenFromHms('studyTimeLimit');
   const raw = readTimerHmsString('studyTimeLimit');
   let durationSec = 0;
@@ -15256,12 +16282,33 @@ async function selectTheme(themeId) {
   // Step 12: a skin swap re-renders the carousel + swaps fonts, and every
   // reposition path that fired mid-swap computed garbage coords (box dipped
   // to mid-screen for a beat — user report ×2). Mute ALL tutor repositioning
-  // for the swap window; the step-11 settle passes re-seat cleanly after.
-  // Extended from 900ms → 1500ms (user report 2026-07 v43: "its still moving
-  // up") to cover font-load completion + the carousel reflow tail, so the
-  // 300/1000ms settle passes during the swap are also suppressed.
-  if (document.body.classList.contains('tutorial-active') && currentStep === 11) {
-    pfTutorRepositionMuteUntil = Date.now() + 1500;
+  // for the swap window.
+  // 900ms → 1500ms (v43 "its still moving up") → 4500ms (v57 "step 12 still
+  // has that bug where it moves the text box"): the step-entry settle passes
+  // fire at entry+300/1000/2000/4000ms and were only guarded for 1500ms
+  // after the swap click. A swap clicked within ~4s of entering the step
+  // left the 2s/4s passes free to reposition AFTER the mute expired, while
+  // the carousel/fonts were still transitioning. Since every pending pass
+  // fires no later than entry+4000ms, and a swap can only happen after
+  // entry, a 4500ms mute mathematically outlives every remaining pass no
+  // matter when the user clicks. Motion tracking is already disabled on
+  // this step and the box's own font swap is deferred to step 13, so with
+  // the passes covered the box cannot move during a swap at all.
+  if (document.body.classList.contains('tutorial-active') && false) { // v83: theme step removed
+    pfTutorRepositionMuteUntil = Date.now() + 4500;
+    // v61 (user report: "step 12 ... back in the middle"): the settle
+    // passes were BOTH the bug and the cure — they moved the box with
+    // garbage coords mid-swap, but their final pass is also what re-seated
+    // the box to its proper centered spot after the carousel settled.
+    // Muting all of them (v57) froze the box wherever the transition left
+    // it. So: mute the churn, then run ONE clean re-seat right after the
+    // mute expires. tutorialRepositionBox self-guards (no-ops if a newer
+    // swap re-armed the mute; that swap schedules its own re-seat).
+    setTimeout(() => {
+      if (!document.body.classList.contains('tutorial-active')) return;
+      return; // v83: theme step removed.
+      try { tutorialRepositionBox?.(); } catch (_) { /* best-effort */ }
+    }, 4600);
   }
   void pfAnalyticsCapture('theme_selected', { theme: themeId });
   await chrome.storage.local.set({ selectedTheme: themeId });
@@ -15269,7 +16316,7 @@ async function selectTheme(themeId) {
   document.querySelectorAll('.theme-card.theme-owned').forEach((card) => {
     card.classList.toggle('theme-selected', card.dataset.themeId === themeId);
   });
-  if (document.body.classList.contains('tutorial-active') && currentStep >= 11) {
+  if (document.body.classList.contains('tutorial-active') && false) { // v83: theme step removed
     syncTutorialTutorFontFromTheme(themeId, currentStep);
   }
 }
@@ -15686,14 +16733,20 @@ async function pfMaybeShowFirstTimeNotifNote(kind, rail) {
   };
   const goToWrappedNotifSettings = async () => {
     await markSeen();
-    const anchor = document.getElementById('pfProfileAnchor');
-    if (anchor) anchor.click();
-    setTimeout(() => {
-      const tabBtn = document.querySelector('.pf-profile-tab[data-profile-tab="wrapped"]');
-      if (tabBtn) tabBtn.click();
-      const panel = document.getElementById('pfProfileTabWrapped');
-      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 220);
+    // v84 (user report: "if they click on notification settings it takes
+    // them to notification settings"). This used to call .click() on
+    // #pfProfileAnchor — which is the WRAPPER DIV around the avatar button,
+    // not the button itself, so nothing opened. The follow-up tab click was
+    // then fired blind on a 220ms timer into a drawer that was never there.
+    // Call the same two functions the ?drawer= deep link uses instead.
+    try {
+      openProfilePanel();
+      switchProfileTab('wrapped');
+      document.getElementById('pfProfileTabWrapped')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      console.warn('[pf-wrapped-note] could not open notification settings', e);
+    }
   };
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();

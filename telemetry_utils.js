@@ -270,6 +270,65 @@ export function computeEngagementScore(tel, options = {}) {
   return score;
 }
 
+/**
+ * ── IMPORTANCE (ordering only, v84) ──────────────────────────────────────
+ *
+ * User spec: "instead of just the engagement it also looks at how much you
+ * open that tab for importance. dont change the engagement score thats sent
+ * but change the order thing."
+ *
+ * So this lives OUTSIDE computeNormalizedEngagementScore on purpose.
+ * That function is the number pushed to the server; it has to stay
+ * comparable across versions and across users, and nothing here may leak
+ * into it.
+ *
+ * Why engagement alone was not enough: engagement is dominated by dwell
+ * time, and it already folds revisits into navComponent as
+ * min(1, pathTransitions*0.12 + tabReturns*0.15) — which saturates after
+ * about seven of them and is then worth ENGAGEMENT_W_NAV of the total.
+ * A reference tab you flick back to forty times a day maxes that term out
+ * early and still loses to a video left playing in the background.
+ *
+ * The revisit component is logarithmic: the first few returns move the
+ * needle most, and it keeps rising (slowly) past the point where
+ * navComponent has flatlined, so "I keep coming back to this" never stops
+ * counting. pathTransitions counts at a quarter weight — navigating within
+ * a tab is a weaker signal of importance than deliberately returning to it.
+ */
+/**
+ * 0.20 is deliberately modest. Real engagement scores bunch between about
+ * 0.2 and 0.6 rather than spanning the full 0–1, so a revisit term worth
+ * 0.20/1.20 ≈ 0.17 of the range is already enough to reorder tabs that are
+ * close, while a tab you genuinely worked in still beats one you merely
+ * flicked through sixty times. At 0.35 (tried first) the flicked tab won,
+ * which turns the tab bar into a click counter.
+ */
+export const IMPORTANCE_REVISIT_WEIGHT = 0.20;
+export const IMPORTANCE_REVISIT_CAP = 12;
+
+export function computeRevisitComponent(tel) {
+  if (!tel) return 0;
+  const tabReturns = Number(tel.tabReturns) || 0;
+  const pathTransitions = Number(tel.pathTransitions) || 0;
+  const revisits = tabReturns + pathTransitions * 0.25;
+  if (revisits <= 0) return 0;
+  return Math.min(1, Math.log(revisits + 1) / Math.log(IMPORTANCE_REVISIT_CAP + 1));
+}
+
+/**
+ * Ordering score: engagement, plus how often the tab gets reopened.
+ *
+ * Normalised by (1 + weight) so the result stays 0–1 like the engagement
+ * score it replaces, and it is strictly monotonic in engagement — two tabs
+ * with identical revisit counts still sort by engagement exactly as before.
+ */
+export function computeTabImportanceScore(tel, options = {}) {
+  if (!tel) return 0;
+  const engagement = computeEngagementScore(tel, { includeNav: true, ...options });
+  const revisit = computeRevisitComponent(tel);
+  return (engagement + IMPORTANCE_REVISIT_WEIGHT * revisit) / (1 + IMPORTANCE_REVISIT_WEIGHT);
+}
+
 export function hasMeaningfulEngagement(tel) {
   if (!tel) return false;
   migrateTelemetryFields(tel);

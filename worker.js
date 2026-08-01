@@ -27,6 +27,7 @@ import {
   migrateTelemetryFields,
   createDefaultTelemetry,
   computeEngagementScore,
+  computeTabImportanceScore,
   computeNormalizedEngagementScore,
   computeBotConfidence,
   hasMeaningfulEngagement,
@@ -38,7 +39,12 @@ import {
 } from './telemetry_utils.js';
 import { applyFeedbackEloUpdate, ELO_MIN, ELO_MAX } from './elo.js';
 import { loadSnapshot, getSnapshotTrap, getSnapshotHostname, getSnapshotToken, getSnapshotHostnameToken, hasHostnameScopedTokens, getSnapshotMetadata } from './global_seed.js';
-import { ANCHORED_UNPROD_HOSTS, ANCHORED_UNPROD_THRESHOLD, isAnchoredHost, MAX_TAB_LIMIT } from './constants.js';
+import { ANCHORED_UNPROD_HOSTS, ANCHORED_UNPROD_THRESHOLD, isAnchoredHost, MAX_TAB_LIMIT, PRIVACY_POLICY_VERSION, PF_HOST_OPEN_MAX, PF_HOST_OPEN_MIN_GAP_MS, PF_HOST_IMPORTANCE_WEIGHT, hostImportanceComponent } from './constants.js';
+import {
+  PF_BANKED_KEY, PF_OVERFLOW_MODE_KEY, readBank, writeBank, clearBank,
+  purgeBankIfExpired, toBankRecords, isBankableUrl
+} from './banked_tabs.js';
+import { groupAndOrderTabs } from './tab_grouping.js';
 import {
   isBrowserInternalUrl,
   isBrowserInternalTabForTabLimit,
@@ -135,6 +141,12 @@ function isLocalClassificationMode() {
 
 async function isRemoteDataCollectionAllowed() {
   if (!TELEMETRY_WRITES_ENABLED) return false;
+  // Trial privacy hard-gate (user spec 2026-07 v56): NOTHING leaves the
+  // device until the user has actually signed in — even if they chose the
+  // "standard" (global classifier) data mode during the tutorial. During
+  // the signed-out 30-minute test the engine runs fully local; the chosen
+  // mode activates the moment they sign in, with no further action needed.
+  if (!(await isSignedIn())) return false;
   return await isRemoteSyncAllowed();
 }
 
@@ -173,8 +185,135 @@ async function isSignedInWithRefresh() {
 
 async function requireSignedInForClassifier() {
   if (await isSignedInWithRefresh()) return true;
+  // 30-minute signed-out test mode (user spec 2026-07 v56): a one-shot
+  // trial unlocks the full engine locally so people (and Chrome Web Store
+  // reviewers) can evaluate the extension before creating an account.
+  if (await isTrialActive()) return true;
   if (PF_DEBUG) console.info('[pf-gate] skip — not signed in');
   return false;
+}
+
+// ── 30-minute signed-out test mode (user spec 2026-07 v56) ────────────────
+// One-shot per install. Counts ACTIVE USE (Chrome foregrounded), not wall
+// clock, via the 1s study-bank tick. All state persists in storage.local so
+// SW eviction / browser restarts can't reset or replay it. While the trial
+// runs, the engine behaves exactly as signed-in EXCEPT that nothing is ever
+// written to remote services — isRemoteDataCollectionAllowed() hard-requires
+// a signed-in session, so even a chosen "standard" data mode runs fully
+// local until the moment the user signs in.
+const PF_TRIAL_TOTAL_SEC = 30 * 60;
+const PF_TRIAL_FLUSH_EVERY_SEC = 15;
+let pfTrialCache = null;          // { startedAt, usedSec, consumed } | null
+let pfTrialUnflushedSec = 0;
+
+async function pfGetTrialState() {
+  if (pfTrialCache) return pfTrialCache;
+  try {
+    const stored = await chrome.storage.local.get('pfTrialState');
+    const s = stored.pfTrialState;
+    pfTrialCache = (s && typeof s === 'object')
+      ? {
+          startedAt: Number(s.startedAt) || 0,
+          usedSec: Math.max(0, Number(s.usedSec) || 0),
+          consumed: s.consumed === true,
+        }
+      : { startedAt: 0, usedSec: 0, consumed: false };
+  } catch (_) {
+    pfTrialCache = { startedAt: 0, usedSec: 0, consumed: false };
+  }
+  return pfTrialCache;
+}
+
+async function pfPersistTrialState() {
+  if (!pfTrialCache) return;
+  try {
+    await chrome.storage.local.set({ pfTrialState: { ...pfTrialCache } });
+  } catch (_) { /* next flush retries */ }
+}
+
+async function isTrialActive() {
+  const t = await pfGetTrialState();
+  if (t.consumed || !t.startedAt) return false;
+  return t.usedSec < PF_TRIAL_TOTAL_SEC;
+}
+
+/** Signed in OR inside the one-shot 30-minute test window. */
+async function hasActiveAccess() {
+  if (await isSignedIn()) return true;
+  return isTrialActive();
+}
+
+/**
+ * v73: same as hasActiveAccess but tries a session refresh first — for the
+ * user-facing message handlers (closer hold toggle, timers, reminder
+ * breaks) that previously gated on isSignedInWithRefresh alone. Those
+ * inline gates were missed in the v56 trial sweep: the broadcast said the
+ * surfaces were live during a trial, but completing the action got
+ * rejected with decline:'signed_out' (user report: "the hold down toggle
+ * button is not working").
+ */
+async function hasActiveAccessWithRefresh() {
+  if (await isSignedInWithRefresh()) return true;
+  return isTrialActive();
+}
+
+async function pfStartTrial() {
+  const t = await pfGetTrialState();
+  if (t.consumed) return { ok: false, reason: 'consumed' };
+  if (t.startedAt) return { ok: true, alreadyRunning: true, remainingSec: Math.max(0, PF_TRIAL_TOTAL_SEC - t.usedSec) };
+  if (await isSignedIn()) return { ok: false, reason: 'signed_in' };
+  pfTrialCache = { startedAt: Date.now(), usedSec: 0, consumed: false };
+  await pfPersistTrialState();
+  console.info('[pf-trial] 30-minute test started');
+  // NOTE (v58): the self-classify expectation notification deliberately
+  // does NOT fire here. Firing at trial start meant it popped BEFORE the
+  // tutorial finish animation and was gone before the user could see it
+  // (user report: "i cant see the notification"). stats.js owns the
+  // timing now — after the finish animation on the tutorial path, and
+  // immediately on the dashboard path (pfMaybeNotifyTrialSelfClassify).
+  return { ok: true, remainingSec: PF_TRIAL_TOTAL_SEC };
+}
+
+/**
+ * Called once per second from the study-bank tick. Burns trial time only
+ * while Chrome is the foreground app (same gate the timers use), flushes
+ * to storage every PF_TRIAL_FLUSH_EVERY_SEC seconds, and on expiry marks
+ * the trial consumed + notifies the dashboard so the sign-in wall returns.
+ */
+async function pfTickTrial() {
+  const t = await pfGetTrialState();
+  if (t.consumed || !t.startedAt) return;
+  if (await isSignedIn()) {
+    // They signed in mid-trial — trial is moot; consume it quietly so the
+    // button never reappears after a later sign-out.
+    pfTrialCache = { ...t, consumed: true };
+    pfTrialUnflushedSec = 0;
+    await pfPersistTrialState();
+    return;
+  }
+  if (state.chromeForeground === false) return; // only active use counts
+  pfTrialCache = { ...t, usedSec: t.usedSec + 1 };
+  pfTrialUnflushedSec += 1;
+  if (pfTrialCache.usedSec >= PF_TRIAL_TOTAL_SEC) {
+    pfTrialCache.consumed = true;
+    pfTrialUnflushedSec = 0;
+    await pfPersistTrialState();
+    console.info('[pf-trial] 30-minute test expired — engine inert until sign-in');
+    // Arm the hand-off instead of performing it. The trial burns down while
+    // the user is mid-task on some page, and yanking them to the dashboard at
+    // that exact second would interrupt whatever they were reading. The flag
+    // is consumed on the next tab switch, which is a natural break.
+    // See pfMaybeHandOffExpiredTrial in the tabs.onActivated listener.
+    await chrome.storage.local.set({ pfTrialExpiredPending: true }).catch(() => {});
+    try {
+      chrome.runtime.sendMessage({ action: 'pfTrialExpired' }).catch(() => {});
+    } catch (_) { /* no listeners */ }
+    return;
+  }
+  if (pfTrialUnflushedSec >= PF_TRIAL_FLUSH_EVERY_SEC) {
+    pfTrialUnflushedSec = 0;
+    await pfPersistTrialState();
+  }
 }
 
 async function refreshPersonalNameTokensFromStorage() {
@@ -4885,9 +5024,88 @@ async function ensureTransformersReady() {
   return transformersLoadingPromise;
 }
 
+// ── Embedding cache persistence (MV3 eviction survival) ───────────────────
+// The pipeline itself can't outlive the service worker — Chrome tears the SW
+// down after ~30s idle and the WASM session goes with it. That reload is
+// accepted: the runtime ships locally (vendor/, no CDN fetch) and
+// classification is gated on `transformersReady`, falling back to Naive Bayes
+// when cold, so eviction costs quality for a moment rather than blocking.
+//
+// What was NOT acceptable is re-INFERRING vectors we already computed. The
+// keyword cache used to be memory-only, so every eviction threw away real
+// compute. Vectors are persisted here so a cold SW rehydrates from disk and
+// only pays inference for genuinely new keywords.
+//
+// Shape: MiniLM-L6-v2 emits 384-dim L2-normalised floats. Rounded to 5 dp
+// (cosine similarity is unaffected well below that) and capped, keeping the
+// blob small. Writes are debounced — inference bursts produce one write.
+const PF_EMBEDDING_CACHE_KEY = 'pfKeywordEmbeddingCache';
+const PF_EMBEDDING_PERSIST_MAX = 300;
+const PF_EMBEDDING_PERSIST_DEBOUNCE_MS = 10_000;
+let pfEmbeddingHydrated = false;
+let pfEmbeddingHydratingPromise = null;
+let pfEmbeddingPersistTimer = null;
+let pfEmbeddingDirty = false;
+
+async function pfHydrateKeywordEmbeddings() {
+  if (pfEmbeddingHydrated) return;
+  if (pfEmbeddingHydratingPromise) return pfEmbeddingHydratingPromise;
+  pfEmbeddingHydratingPromise = (async () => {
+    try {
+      const stored = await chrome.storage.local.get(PF_EMBEDDING_CACHE_KEY);
+      const blob = stored[PF_EMBEDDING_CACHE_KEY];
+      if (blob && typeof blob === 'object') {
+        let restored = 0;
+        for (const [kw, vec] of Object.entries(blob)) {
+          if (!Array.isArray(vec) || !vec.length) continue;
+          if (state.keywordEmbeddings.has(kw)) continue;
+          state.keywordEmbeddings.set(kw, vec);
+          restored++;
+        }
+        if (restored) {
+          console.info('[pf-semantic] rehydrated embeddings from disk', { restored });
+        }
+      }
+    } catch (e) {
+      console.warn('[pf-semantic] embedding rehydrate failed', e);
+    } finally {
+      pfEmbeddingHydrated = true;
+      pfEmbeddingHydratingPromise = null;
+    }
+  })();
+  return pfEmbeddingHydratingPromise;
+}
+
+function pfSchedulePersistKeywordEmbeddings() {
+  pfEmbeddingDirty = true;
+  if (pfEmbeddingPersistTimer) return;
+  pfEmbeddingPersistTimer = setTimeout(async () => {
+    pfEmbeddingPersistTimer = null;
+    if (!pfEmbeddingDirty) return;
+    pfEmbeddingDirty = false;
+    try {
+      // Persist the most-recent entries (Map preserves insertion order, and
+      // the in-memory eviction below keeps that order meaningful).
+      const entries = Array.from(state.keywordEmbeddings.entries());
+      const slice = entries.slice(-PF_EMBEDDING_PERSIST_MAX);
+      const blob = {};
+      for (const [kw, vec] of slice) {
+        if (!Array.isArray(vec) || !vec.length) continue;
+        blob[kw] = vec.map((n) => Math.round(Number(n) * 1e5) / 1e5);
+      }
+      await chrome.storage.local.set({ [PF_EMBEDDING_CACHE_KEY]: blob });
+    } catch (e) {
+      console.warn('[pf-semantic] embedding persist failed', e);
+    }
+  }, PF_EMBEDDING_PERSIST_DEBOUNCE_MS);
+}
+
 async function getKeywordEmbedding(keyword) {
   const normalised = normaliseKeyword(keyword);
   if (!normalised) return null;
+  // Disk cache first — a freshly-restarted SW can answer without ever
+  // touching (or loading) the model.
+  await pfHydrateKeywordEmbeddings();
   if (state.keywordEmbeddings.has(normalised)) return state.keywordEmbeddings.get(normalised);
 
   const ready = await ensureTransformersReady();
@@ -4917,6 +5135,9 @@ async function getKeywordEmbedding(keyword) {
         state.keywordEmbeddings.delete(state.keywordEmbeddings.keys().next().value);
       }
       state.keywordEmbeddings.set(normalised, embedding);
+      // Survive the next SW eviction (debounced — an inference burst
+      // produces a single write).
+      pfSchedulePersistKeywordEmbeddings();
     }
     return embedding.length ? embedding : null;
   } catch (error) {
@@ -5023,6 +5244,9 @@ function ensureInstallAlarmsAndIntervals() {
   if (!globalThis.pfStudyBankTickInterval) {
     globalThis.pfStudyBankTickInterval = setInterval(async () => {
       try {
+        // Trial (v56): burn 30-min test time on the same 1s cadence the
+        // timers use. Cheap no-op when no trial is running.
+        try { await pfTickTrial(); } catch (_) { /* never block the tick */ }
         const { windowConfigs, bankSpendActive: bankSpendActiveMap, bankFocusActive: bankFocusActiveMap } = await getTickWindowConfigsCache();
         const windows = await chrome.windows.getAll();
         for (const win of windows) {
@@ -5063,11 +5287,16 @@ function ensureInstallAlarmsAndIntervals() {
           maybeFireUnprodReminder(win.id, windowName).catch((e) => {
             console.warn('[pf-unprod-reminder] tick failed', e);
           });
-          // Study-break earned-time toast: every 15 min on an unprod site (no
-          // timer running), tell the user how much break time they've banked.
-          maybeFireStudyBreakEarnedReminder(win.id, windowName).catch((e) => {
-            console.warn('[pf-studybreak-earned] tick failed', e);
-          });
+          // Study-break earned-time toast REMOVED FOR GOOD (user report
+          // 2026-07 v55: "WHY did I see 'you have 15min of break left'
+          // randomly with no timer on — I thought we removed that").
+          // History: removed once, restored in v43 with gates (banked
+          // time + unprod site + no running timer). Those gates made it
+          // fire at exactly the moment the user experiences as "random
+          // popup out of nowhere". The banked balance is already visible
+          // on the dashboard's Break available pill and the floating
+          // button — an unsolicited toast adds nothing. Do NOT restore
+          // without an explicit opt-in setting.
           // Wrapped toast retry (user spec 2026-07: "show up on ANY site no
           // matter what"): the hourly check could fire while the user was on
           // an uninjectable page and the toast landed on a background tab
@@ -5133,8 +5362,9 @@ function ensureInstallAlarmsAndIntervals() {
 async function maybeFireUnprodReminder(windowId, windowName) {
   if (!windowName) return;
   // Signed-out gate (per user spec 2026-07): no reminder prompts appear
-  // to the user until they've signed in.
-  if (!(await isSignedIn())) return;
+  // to the user until they've signed in. Trial (v56): reminders run during
+  // the 30-minute signed-out test like everything else.
+  if (!(await hasActiveAccess())) return;
   const stored = await chrome.storage.local.get([
     'unprodReminderSettings', 'unprodReminderSnoozedUntil',
   ]);
@@ -5698,11 +5928,15 @@ async function maybeFireUnprodReminder(windowId, windowName) {
  */
 const STUDY_BREAK_EARNED_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
 async function maybeFireStudyBreakEarnedReminder(windowId, windowName) {
-  // RESTORED (user spec 2026-07 v43): the toast is back, but properly gated
-  // — the earlier removal was a reaction to it firing at the wrong moments
-  // (mid-Work-Timer, while configuring the feature). The v43 gates below
-  // (running-session checks + studyBreakPreviewVisible suppression + 15min
-  // snooze) fix the noise instead of deleting the feature.
+  // DEAD CODE — call site removed 2026-07 v55 (user: "why did I see
+  // 'you have 15min of break left' randomly with no timer on"). Kept as
+  // a stub so any stray callers no-op instead of throwing. The v43
+  // restoration gates below never made the toast feel intentional; the
+  // banked balance is already visible on the dashboard + floating
+  // button. If this ever comes back it must be behind an explicit
+  // opt-in toggle in Reminders.
+  return;
+  // eslint-disable-next-line no-unreachable
   if (!windowName) return;
   try {
     const stored = await chrome.storage.local.get([
@@ -5933,7 +6167,7 @@ async function maybeNotifyAnyWrappedReady() {
   // / monthly) route through this entry point, so a single early return
   // covers them + the fallback chain in fireWrappedInPageToast.
   try {
-    if (!(await isSignedIn())) return;
+    if (!(await hasActiveAccess())) return;
   } catch (_) { return; /* fail closed — no toast on unknown auth state */ }
   // Try monthly first — if it fires (or would fire but pref is off),
   // still suppress the smaller ones since the user has clearly opted
@@ -6397,8 +6631,199 @@ async function fireReorderNoticeInPageToast(options = {}) {
   }
 }
 
+// ── v83: Banked Tabs ─────────────────────────────────────────────────────
+// "Keep my current tabs" during onboarding: instead of closing the overflow,
+// capture it, close the real tabs, and park the records in a stash tab.
+//
+// The stash is deleted permanently after 24h or when the stash tab closes
+// (user spec 2026-07-30). Because that is irreversible, every banked URL is
+// ALSO written to the daily recap log on the way in — so Daily Wrapped still
+// shows what was closed even after the stash is gone. Do not remove that; it
+// is the only record that survives the purge.
+const PF_BANK_ALARM = 'pfBankedTabsExpiry';
+
+async function bankOverflowTabs(windowId, tabsToBank) {
+  const bankable = (tabsToBank || []).filter((t) => isBankableUrl(t?.url));
+  if (!bankable.length) return { banked: 0 };
+  const now = Date.now();
+  const records = toBankRecords(bankable, now);
+
+  // Survives the purge — see the note above. Logged per host so Daily Wrapped
+  // can still say what was cleared once the stash itself is gone.
+  for (const r of records) {
+    try {
+      bumpRecapCounter('close', new URL(r.url).hostname);
+    } catch (_) { /* recap counter is best-effort, never block banking */ }
+  }
+
+  // v83 (user spec: "don't take them to that page, just open it in a new
+  // tab"). active:false is not sufficient on its own — closing the overflow
+  // below can make Chrome move focus, and the tab it lands on may be the one
+  // we just created. Remember where the user actually was and put them back.
+  const activeBefore = await chrome.tabs
+    .query({ active: true, windowId })
+    .then((r) => r?.[0]?.id ?? null)
+    .catch(() => null);
+
+  const stashUrl = chrome.runtime.getURL('banked.html');
+  const stash = await chrome.tabs.create({ url: stashUrl, active: false, windowId })
+    .catch(() => null);
+
+  await writeBank({
+    createdAt: now,
+    stashTabId: stash?.id ?? null,
+    items: records
+  });
+
+  // Close the real tabs only AFTER the records are safely persisted — if the
+  // write failed we would otherwise have closed tabs with nothing to restore.
+  const ids = bankable.map((t) => t.id).filter((id) => id != null);
+  for (const id of ids) {
+    await chrome.tabs.remove(id).catch(() => {});
+  }
+
+  // Restore focus. Only if that tab still exists — it will not if the user
+  // was sitting on one of the tabs that just got banked, in which case
+  // Chrome's own choice is as good as any, except the stash.
+  if (activeBefore != null) {
+    const stillThere = await chrome.tabs.get(activeBefore).catch(() => null);
+    if (stillThere) await chrome.tabs.update(activeBefore, { active: true }).catch(() => {});
+  } else if (stash?.id != null) {
+    // No known previous tab: make sure we at least did not leave the user
+    // staring at the stash.
+    const current = await chrome.tabs.query({ active: true, windowId })
+      .then((r) => r?.[0] ?? null).catch(() => null);
+    if (current?.id === stash.id) {
+      const other = await chrome.tabs.query({ windowId })
+        .then((all) => (all || []).find((t) => t.id !== stash.id) || null)
+        .catch(() => null);
+      if (other?.id != null) await chrome.tabs.update(other.id, { active: true }).catch(() => {});
+    }
+  }
+
+  try {
+    await chrome.alarms.create(PF_BANK_ALARM, { delayInMinutes: 24 * 60 + 1 });
+  } catch (_) { /* alarm is a backstop; the stash-tab close also purges */ }
+
+  console.info('[pf-bank] banked', records.length, 'tabs; stash tab', stash?.id);
+  return { banked: records.length, stashTabId: stash?.id ?? null };
+}
+
+/** Closing the stash tab purges the stash (user spec). */
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void (async () => {
+    const bank = await readBank();
+    if (!bank || bank.stashTabId !== tabId) return;
+    console.info('[pf-bank] stash tab closed — purging', bank.items?.length || 0, 'records');
+    await clearBank();
+    try { await chrome.alarms.clear(PF_BANK_ALARM); } catch (_) {}
+  })();
+});
+
+// ── v83: post-onboarding floating-button walkthrough ─────────────────────
+// The "Floating button" tutorial step used to demo a FAKE button inside the
+// dashboard overlay. It now runs on a real web page instead: when the
+// tutorial finishes we arm this flag and switch the user to their most
+// recent normal tab, and closer_indicator.js picks the flag up and coaches
+// them through holding the real button.
+const PF_BTN_WALKTHROUGH_FLAG = 'pfButtonWalkthroughPending';
+// The ONE tab that is allowed to show the coach card. Without this every
+// tab with a content script saw the pending flag and drew its own copy
+// (user report 2026-07-30: "it shows the tutorial steps on every open site").
+const PF_BTN_WALKTHROUGH_TAB = 'pfButtonWalkthroughTabId';
+// Sticky "they have already been through it" flag. Separate from the pending
+// flag so completing it once means it never returns, even if the tutorial is
+// re-run or the pending flag is somehow re-armed.
+const PF_BTN_WALKTHROUGH_SEEN = 'pfButtonWalkthroughSeen';
+
+/** True while the on-page button walkthrough is armed or running. */
+async function isButtonWalkthroughActive() {
+  try {
+    const s = await chrome.storage.local.get(PF_BTN_WALKTHROUGH_FLAG);
+    return s?.[PF_BTN_WALKTHROUGH_FLAG] === true;
+  } catch (_) { return false; }
+}
+
+/**
+ * Arm the walkthrough and move the user to a page where the real floating
+ * button exists. Called from the dashboard the moment the tutorial finishes.
+ * Picks the most-recently-active http(s) tab in the same window — the
+ * dashboard itself, chrome:// pages and the web store have no content
+ * script, so coaching there would point at nothing.
+ */
+async function startButtonWalkthrough(windowId) {
+  try {
+    // Once through is enough — never coach the same install twice.
+    const seen = await chrome.storage.local.get(PF_BTN_WALKTHROUGH_SEEN);
+    if (seen?.[PF_BTN_WALKTHROUGH_SEEN] === true) {
+      console.info('[pf-btn-walkthrough] already seen — not arming');
+      return { switched: false, alreadySeen: true };
+    }
+    const tabs = await chrome.tabs.query(
+      windowId ? { windowId } : { currentWindow: true }
+    ).catch(() => []);
+    const injectable = (tabs || []).filter((t) => /^https?:/i.test(t.url || ''));
+    if (!injectable.length) {
+      // Nothing to coach on. Arm WITHOUT a tab id so the next real page that
+      // loads claims it, rather than losing the walkthrough entirely.
+      await chrome.storage.local.set({
+        [PF_BTN_WALKTHROUGH_FLAG]: true,
+        [PF_BTN_WALKTHROUGH_TAB]: null
+      });
+      console.info('[pf-btn-walkthrough] no injectable tab — staying armed');
+      return { switched: false };
+    }
+    // lastAccessed is the honest "latest tab"; fall back to the highest
+    // index if the browser doesn't expose it.
+    injectable.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)
+      || (b.index || 0) - (a.index || 0));
+    const target = injectable[0];
+    // Pin the walkthrough to exactly this tab BEFORE arming it, so no other
+    // tab can win the race and draw a second coach card.
+    await chrome.storage.local.set({
+      [PF_BTN_WALKTHROUGH_TAB]: target.id,
+      [PF_BTN_WALKTHROUGH_FLAG]: true
+    });
+    await chrome.tabs.update(target.id, { active: true }).catch(() => {});
+    return { switched: true, tabId: target.id };
+  } catch (e) {
+    console.warn('[pf-btn-walkthrough] start failed', e);
+    return { switched: false };
+  }
+}
+
+/**
+ * May THIS tab draw the coach card? Only the pinned tab may. If no tab was
+ * pinned (nothing injectable existed at finish time) the first caller claims
+ * it, which keeps the walkthrough alive without ever allowing two.
+ */
+async function claimButtonWalkthrough(tabId) {
+  if (tabId == null) return false;
+  try {
+    const s = await chrome.storage.local.get([
+      PF_BTN_WALKTHROUGH_FLAG, PF_BTN_WALKTHROUGH_TAB, PF_BTN_WALKTHROUGH_SEEN
+    ]);
+    if (s?.[PF_BTN_WALKTHROUGH_SEEN] === true) return false;
+    if (s?.[PF_BTN_WALKTHROUGH_FLAG] !== true) return false;
+    const pinned = s?.[PF_BTN_WALKTHROUGH_TAB];
+    if (pinned == null) {
+      await chrome.storage.local.set({ [PF_BTN_WALKTHROUGH_TAB]: tabId });
+      return true;
+    }
+    return pinned === tabId;
+  } catch (_) { return false; }
+}
+
 async function maybeFireFirstReorderNotice() {
   try {
+    // v83 (user spec): never interrupt the button walkthrough with the
+    // "tabs were reordered" toast. DEFERRED, not swallowed — the notice is
+    // one-shot, so returning without touching pfReorderNoticeShown leaves it
+    // pending and it fires on the next reorder once coaching is done.
+    if (await isButtonWalkthroughActive()) {
+      console.info('[pf-reorder-notice] deferred — button walkthrough running');
+      return;
+    }
     const stored = await chrome.storage.local.get('pfReorderNoticeShown');
     if (stored.pfReorderNoticeShown === true) return;
     // Set the flag BEFORE the async inject so a concurrent reorder can't
@@ -6444,6 +6869,7 @@ chrome.runtime.onStartup.addListener(async () => {
     await chrome.storage.session.set({ tabUsage: Object.fromEntries(tabUsage) });
     await reorderTabsByEngagement(tab.windowId);
   }
+
 
   const spiralData = await chrome.storage.local.get(['currentSpiralStreaks']);
   if (spiralData.currentSpiralStreaks && Object.keys(spiralData.currentSpiralStreaks).length > 0) {
@@ -6981,6 +7407,21 @@ chrome.runtime.onInstalled.addListener((details) => {
       : Date.now() - 30 * 24 * 60 * 60 * 1000;
     chrome.storage.local.set({ pfInstalledAt: stamp }).catch(() => {});
   }).catch(() => {});
+  // ── Privacy-policy change banner: EXISTING INSTALLS ONLY ────────────────
+  // A fresh install is stamped with the current policy version right here, so
+  // somebody installing today has by definition already been shown the
+  // current policy and will never see the banner. Anyone whose profile
+  // predates the change has no stamp (or an older one), which is precisely
+  // who needs telling, and the dashboard shows them the banner.
+  //
+  // Note the asymmetry: the 'install' branch WRITES, the 'update' branch does
+  // nothing at all. Writing on update would suppress the very notice this
+  // exists to deliver. Do not "tidy" this into a single set-if-missing.
+  if (details?.reason === 'install') {
+    chrome.storage.local.set({
+      pfPrivacyPolicyAckVersion: PRIVACY_POLICY_VERSION
+    }).catch(() => {});
+  }
 });
 // Also register the uninstall URL on service-worker startup, not just on the
 // onInstalled event — Chrome persists it across sessions, but re-registering
@@ -6991,6 +7432,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 // "Cannot access 'PF_UNINSTALL_FEEDBACK_URL' before initialization" on
 // every SW boot — the uninstall URL was never registered at startup.
 const PF_UNINSTALL_FEEDBACK_URL = 'https://playingfild.com/uninstall-feedback';
+// v83 (user spec "dont have the version"): the ?v= build stamp is no longer
+// appended. Set this back to true if you ever want to know which build people
+// left from — registerUninstallFeedbackUrl reads it.
+const PF_UNINSTALL_URL_INCLUDE_VERSION = false;
 try {
   registerUninstallFeedbackUrl();
 } catch (_) { /* worker context unavailable — retry on next onInstalled */ }
@@ -7008,7 +7453,7 @@ function registerUninstallFeedbackUrl() {
   try {
     const version = chrome.runtime.getManifest()?.version || '';
     const url = new URL(PF_UNINSTALL_FEEDBACK_URL);
-    if (version) url.searchParams.set('v', version);
+    if (PF_UNINSTALL_URL_INCLUDE_VERSION && version) url.searchParams.set('v', version);
     chrome.runtime.setUninstallURL(url.toString(), () => {
       // Ignore errors — some browsers don't support this, and it's non-critical.
       if (chrome.runtime.lastError) {
@@ -8010,6 +8455,19 @@ async function applyHumanOverrideEnforcement(tabId, ctx, userSaysProductive) {
       user_confirmed: true,
       confidence: 1.0
     };
+    // During a break/unprod timer the user has explicitly bought N minutes of
+    // free browsing. Marking a tab Unproductive must only update its stored
+    // classification here — never close it mid-break. The expiry sweep
+    // (runBudgetExhaustedSweep) closes these when the timer hits 0. Mirrors the
+    // same guard on the analyze_page path, which the chokepoint's GATE 2 does
+    // not apply to 'user_feedback_override' (it is explicitly exempted there).
+    const tabForClose = await chrome.tabs.get(tabId).catch(() => null);
+    const breakRunning = tabForClose?.windowId != null
+      && (await isBreakSessionRunning(await getWindowNameById(tabForClose.windowId).catch(() => null)));
+    if (breakRunning) {
+      console.info('[pf-human-override] eviction deferred — break timer running', { tabId });
+      return;
+    }
     console.info('[pf-human-override] immediate eviction — user marked Unproductive', { tabId });
     await requestEviction(tabId, 'user_feedback_override', { analysis });
   }
@@ -8328,6 +8786,321 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           catch (e) { try { sendResponse({ success: false, error: e?.message }); } catch (_) {} }
         })();
         return true;
+      case 'pfStartButtonWalkthrough':
+        // Fired by the dashboard the instant the tutorial finishes.
+        (async () => {
+          try {
+            const res = await startButtonWalkthrough(sender?.tab?.windowId);
+            sendResponse({ success: true, ...res });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfApplyTabLimitChoice':
+        // Onboarding tab-limit step. mode 'bank' parks the overflow in the
+        // stash; mode 'close' is the original behaviour and is also the
+        // fallback if the user advances without choosing (user spec).
+        (async () => {
+          try {
+            const mode = message?.mode === 'bank' ? 'bank' : 'close';
+            await chrome.storage.local.set({ [PF_OVERFLOW_MODE_KEY]: mode });
+            const win = await chrome.windows.getCurrent().catch(() => null);
+            const windowId = message?.windowId ?? win?.id;
+            const limit = Math.max(1, Math.min(
+              Number(message?.limit) || 5, MAX_TAB_LIMIT
+            ));
+            const tabs = await chrome.tabs.query({ windowId }).catch(() => []);
+            // Keep the most-recently-used `limit` tabs; everything else is
+            // overflow. Same ordering the closer uses, so the tabs that
+            // survive are the ones the user actually works in.
+            const ranked = [...(tabs || [])].sort(
+              (a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)
+            );
+            const overflow = ranked.slice(limit);
+            if (mode !== 'bank') {
+              sendResponse({ success: true, mode, banked: 0 });
+              return;
+            }
+            const res = await bankOverflowTabs(windowId, overflow);
+            sendResponse({ success: true, mode, ...res });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfGetQuickSettings':
+        // v83: everything the quick panel shows, read from the real stores.
+        // The content script's own currentState only carries indicator fields
+        // (limitsEnabled, timer flags) — it has no tab limit and no banked
+        // break, so the panel was rendering placeholders.
+        (async () => {
+          try {
+            const windowId = sender?.tab?.windowId
+              ?? (await chrome.windows.getCurrent()).id;
+            const cfg = await getWindowConfig(windowId).catch(() => ({}));
+            const flags = await chrome.storage.local.get([
+              'pfReorderTabsEnabled', 'pfGroupSimilarTabsEnabled'
+            ]).catch(() => ({}));
+            let breakSec = 0;
+            try {
+              const wn = await getWindowNameById(windowId);
+              const av = (await chrome.storage.local.get('studyBreakAvailable'))
+                .studyBreakAvailable || {};
+              breakSec = Math.max(0, Math.round(Number(av[wn]) || 0));
+            } catch (_) { breakSec = 0; }
+            // v84: the quick panel now has Start/Stop for both timers, so it
+            // needs to know which one is live. Read from the same stores the
+            // dashboard's per-second reconcile reads, or the two surfaces
+            // disagree the moment one of them acts.
+            let workRunning = false;
+            let earnRunning = false;
+            // v84 (user spec): the panel shows CLOCK VALUES under each timer,
+            // not prose. Remaining while a timer runs, the configured length
+            // while it does not. Rounded minutes ("1 min banked") were the
+            // complaint: 59 seconds and 89 seconds both read as "1 min".
+            let workRemainingSec = 0;
+            let workConfiguredSec = 0;
+            let earnRemainingSec = 0;
+            let earnConfiguredSec = 0;
+            try {
+              const wn = await getWindowNameById(windowId);
+              initWallClockTimerSystem();
+              const session = await loadTimerSession();
+              workRunning = isSessionActive(session)
+                && session.mode === TIMER_MODE.STUDY
+                && (!wn || session.windowName === wn);
+              workConfiguredSec = Math.max(0, Math.floor(
+                Number(cfg?.studyBreakEverySec) || 25 * 60
+              ));
+              if (workRunning) {
+                const snap = await getTimerSnapshotForWindow(wn).catch(() => null);
+                workRemainingSec = Math.max(0, Math.floor(Number(snap?.remainingSec) || 0));
+              }
+              const banks = await chrome.storage.local.get([
+                'bankFocusActive', 'bankSpendActive', 'bankFocusRemaining'
+              ]);
+              earnRunning = !!banks.bankFocusActive?.[wn] || !!banks.bankSpendActive?.[wn];
+              earnConfiguredSec = Math.max(0, Math.floor(Number(cfg?.bankFocus) || 30 * 60));
+              earnRemainingSec = Math.max(0, Math.floor(
+                Number(banks.bankFocusRemaining?.[wn]) || 0
+              ));
+            } catch (_) { /* best-effort — buttons fall back to idle */ }
+            sendResponse({
+              success: true,
+              tabLimit: Math.max(1, Math.min(Number(cfg?.tabLimit) || 5, MAX_TAB_LIMIT)),
+              closerEnabled: cfg?.limitsEnabled === true,
+              reorderEnabled: flags.pfReorderTabsEnabled !== false,
+              groupEnabled: flags.pfGroupSimilarTabsEnabled === true,
+              breakAvailableSec: breakSec,
+              workRunning,
+              earnRunning,
+              workRemainingSec,
+              workConfiguredSec,
+              earnRemainingSec,
+              earnConfiguredSec
+            });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfQuickTimer':
+        /**
+         * v84 (user spec): Start/Stop for the Work Timer and Advanced
+         * Earn/Spend, driven from the floating button's quick panel.
+         *
+         * Deliberately worker-side. The dashboard's own handlers read the
+         * HMS inputs out of the DOM, and the quick panel has no DOM to read
+         * — so it uses the SAVED window config instead. Everything else
+         * routes through the exact helpers the dashboard buttons end up
+         * calling (startBankFocusMode, wallClockTimerBridge, endBankFocusMode),
+         * so there is no second implementation to drift.
+         *
+         * "if they stop it there it should also stop it in the settings":
+         * both stop paths write the feature flag off. The dashboard's
+         * per-second reconcile (pfReconcileModeBButtonsFromStorage +
+         * renderStudyTimerUI) re-derives its buttons from exactly these
+         * stores, so it flips back to Start on its own within a second.
+         * Clearing advancedBankedTimeEnabled is what trips its
+         * feature-off cascade and releases the sticky-Stop flag.
+         */
+        (async () => {
+          try {
+            await ensureReady();
+            initWallClockTimerSystem();
+            const windowId = sender?.tab?.windowId
+              ?? (await chrome.windows.getCurrent()).id;
+            const windowName = windowId != null ? await getWindowNameById(windowId) : null;
+            if (windowId == null || !windowName) {
+              sendResponse({ success: false, error: 'Unknown window' });
+              return;
+            }
+            const which = message?.which === 'earn' ? 'earn' : 'work';
+            const op = message?.op === 'stop' ? 'stop' : 'start';
+            // Same signed-out gate the dashboard start paths use.
+            if (op === 'start' && !(await hasActiveAccessWithRefresh())) {
+              sendResponse({ success: false, decline: 'signed_out' });
+              return;
+            }
+            const cfg = (await getWindowConfig(windowId).catch(() => ({}))) || {};
+
+            if (which === 'work' && op === 'start') {
+              const durationSec = Math.max(1, Math.floor(
+                Number(cfg.studyBreakEverySec) || 25 * 60
+              ));
+              await refundAndEndBankSpend(windowName, windowId);
+              await ensureAdvancedEarnOffForStudy(windowName, windowId);
+              await wallClockTimerBridge.startTimer({
+                windowId,
+                windowName,
+                mode: TIMER_MODE.STUDY,
+                limitSec: durationSec,
+                originalInput: formatUnprodLimitString(durationSec)
+              });
+              await resetStudyBreakProgressForSession(windowName).catch(() => {});
+              // Clear stale auto-pause flags, same as the reminder-break start
+              // path does. The user affirmatively clicked Start, so any
+              // focus/dashboard/idle pause carried over from a previous
+              // session or latched during the message round-trip is wrong.
+              try {
+                const fresh = await loadTimerSession();
+                if (fresh?.windowName === windowName && fresh.mode === TIMER_MODE.STUDY) {
+                  let resumed = fresh.status === TIMER_STATUS.PAUSED
+                    ? await resumeTimerSession(fresh)
+                    : fresh;
+                  resumed = {
+                    ...resumed,
+                    focusPause: false,
+                    dashboardPause: false,
+                    videoScopePause: false,
+                    idlePause: false
+                  };
+                  await saveTimerSession(resumed);
+                }
+              } catch (e) {
+                console.warn('[pf-quick-timer] could not clear pause flags', e);
+              }
+              await saveWindowConfigById(windowId, {
+                studyTimerEnabled: true,
+                studyStartedAt: Date.now(),
+                // Mirrors the dashboard Start, which ticks studyBreakEnabled
+                // on so the per-tick earning actually credits.
+                studyBreakEnabled: true
+              });
+            } else if (which === 'work') {
+              await refundAndEndBankSpend(windowName, windowId);
+              await wallClockTimerBridge.stopTimer({
+                windowId, windowName, reason: 'quick-panel'
+              });
+              await flushPendingBreakCredits(windowName, windowId).catch(() => {});
+              await saveWindowConfigById(windowId, { studyTimerEnabled: false });
+            } else if (op === 'start') {
+              const focusSec = Math.max(1, Math.floor(Number(cfg.bankFocus) || 30 * 60));
+              // startBankFocusMode rejects earn < 1, so the fallback matters.
+              const earnSec = Math.max(1, Math.floor(Number(cfg.bankEarned) || 10 * 60));
+              // Written BEFORE the start, same ordering the dashboard uses:
+              // the earn tick reads advancedBankedTimeEnabled, and if the
+              // flag lands after the session the first cycle earns nothing.
+              await saveWindowConfigById(windowId, {
+                advancedBankedTimeEnabled: true,
+                bankedTimeEnabled: true,
+                studyBreakEnabled: false
+              });
+              await startBankFocusMode(windowName, windowId, focusSec, earnSec);
+            } else {
+              // ORDER MATTERS, and getting it wrong loses the user's banked
+              // time (user report: "I used the 6 min I saved up, then stopped
+              // it, and it didn't go back in").
+              //
+              // The spend session MUST be refunded and ended BEFORE the focus
+              // session is cleared. Clear focus first and the tick can run in
+              // the gap with spendActive && !focusActive, which is the
+              // no-refund branch at worker.js ~18800, and the remainder is
+              // consumed instead of credited. stats.js carries the same
+              // warning above its own stop handler; this path had the two
+              // calls the wrong way round.
+              await refundAndEndBankSpend(windowName, windowId);
+              await endBankFocusMode(windowName);
+              await saveWindowConfigById(windowId, { advancedBankedTimeEnabled: false });
+            }
+
+            invalidateTickWindowConfigsCache();
+            await broadcastCloserStateUpdate().catch(() => {});
+            if (wallClockTimerBridge?.runTick) {
+              wallClockTimerBridge.runTick().catch(() => {});
+            }
+            sendResponse({ success: true, which, op });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message || String(e) }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfSetTabLimit':
+        // v83 quick panel. Writes through the same window config the
+        // dashboard uses, so there is no second store to drift.
+        (async () => {
+          try {
+            const windowId = sender?.tab?.windowId
+              ?? (await chrome.windows.getCurrent()).id;
+            const limit = Math.max(1, Math.min(
+              Number(message?.limit) || 5, MAX_TAB_LIMIT
+            ));
+            // saveWindowConfigById takes a PARTIAL update and merges it, so
+            // pass only the field — spreading the whole config would rewrite
+            // every other setting from a possibly stale read.
+            await saveWindowConfigById(windowId, { tabLimit: limit });
+            await enforceTabLimit(windowId).catch(() => {});
+            sendResponse({ success: true, limit });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfOpenDashboardFocus':
+        // v83 quick panel: hand off to the real dashboard rather than
+        // reimplementing Advanced Settings inside the content script.
+        (async () => {
+          try {
+            let url = chrome.runtime.getURL('stats.html');
+            if (message?.drawer === 'advanced') url += '?drawer=advanced';
+            else if (message?.focus) url += `?focus=${encodeURIComponent(message.focus)}`;
+            await chrome.tabs.create({ url });
+            sendResponse({ success: true });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfClaimButtonWalkthrough':
+        // A content script asking "am I the one tab allowed to show this?".
+        // The worker answers from sender.tab.id, which the page cannot spoof
+        // and cannot read for itself.
+        (async () => {
+          try {
+            const ok = await claimButtonWalkthrough(sender?.tab?.id);
+            sendResponse({ success: true, allowed: ok });
+          } catch (e) {
+            try { sendResponse({ success: false, allowed: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
+      case 'pfButtonWalkthroughDone':
+        // Content script reports the user finished (or dismissed) it. Mark it
+        // SEEN so it can never come back on this install.
+        (async () => {
+          try {
+            await chrome.storage.local.set({
+              [PF_BTN_WALKTHROUGH_FLAG]: false,
+              [PF_BTN_WALKTHROUGH_TAB]: null,
+              [PF_BTN_WALKTHROUGH_SEEN]: true
+            });
+            sendResponse({ success: true });
+          } catch (e) {
+            try { sendResponse({ success: false, error: e?.message }); } catch (_) {}
+          }
+        })();
+        return true;
       case 'resetUserElo':
         handleResetUserElo(message, sendResponse);
         return true;
@@ -8462,6 +9235,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state.pfBotSuspect = true;
         chrome.storage.local.set({ pfBotSuspect: true }).catch(() => {});
         sendResponse({ success: true });
+        return true;
+      case 'pfStartTrial':
+        // 30-minute signed-out test mode (v56): one-shot per install.
+        (async () => {
+          const result = await pfStartTrial();
+          sendResponse(result);
+        })();
+        return true;
+      case 'pfGetTrialState':
+        (async () => {
+          const t = await pfGetTrialState();
+          sendResponse({
+            startedAt: t.startedAt,
+            consumed: t.consumed,
+            active: await isTrialActive(),
+            remainingSec: Math.max(0, PF_TRIAL_TOTAL_SEC - t.usedSec),
+            totalSec: PF_TRIAL_TOTAL_SEC,
+            signedIn: await isSignedIn(),
+          });
+        })();
         return true;
       case 'pushFeedbackToSupabase':
         // SHADOW-BAN GATE: suspected bots' votes never reach the global
@@ -8743,7 +9536,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
       case 'reorderTabsNow':
         (async () => {
-          const windowId = message.windowId;
+          // v83: fall back to the sender's window. The quick panel lives in a
+          // content script and has no way to know its own windowId, so
+          // without this its "Auto group similar tabs" switch saved the
+          // setting but never actually reordered anything.
+          const windowId = message.windowId ?? sender?.tab?.windowId
+            ?? (await chrome.windows.getCurrent().catch(() => null))?.id;
           if (windowId != null) {
             await reorderTabsByEngagement(windowId);
           }
@@ -8912,7 +9710,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Signed-out gate (per user spec 2026-07): nothing works
             // while signed out. Reject with a clear reason so the closer
             // indicator can surface a hint in the hold-blocked panel.
-            if (!(await isSignedInWithRefresh())) {
+            // v73: trial-aware — the hold toggle must work during the test.
+            if (!(await hasActiveAccessWithRefresh())) {
               sendResponse({ success: false, decline: 'signed_out' });
               return;
             }
@@ -8958,8 +9757,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           try {
             await ensureReady();
             // Signed-out gate (per user spec 2026-07): all timers require
-            // the user to be signed in.
-            if (!(await isSignedInWithRefresh())) {
+            // the user to be signed in. v73: trial-aware — timers run
+            // during the 30-minute test.
+            if (!(await hasActiveAccessWithRefresh())) {
               sendResponse({ success: false, decline: 'signed_out' });
               return;
             }
@@ -10210,7 +11010,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // YouTube timer + the reminder-driven break both flow through
             // this handler. Reject them entirely when the user isn't
             // signed in so no timer can start behind the scenes.
-            if (!(await isSignedInWithRefresh())) {
+            // v73: trial-aware — these run during the 30-minute test.
+            if (!(await hasActiveAccessWithRefresh())) {
               sendResponse({ success: false, decline: 'signed_out' });
               return;
             }
@@ -10255,6 +11056,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               limitSec: durationSec,
               originalInput: formatUnprodLimitString(durationSec),
             });
+            // ── A PLAIN BREAK MUST NOT AUTO-PAUSE (user report 2026-07 v84:
+            //    "the 5 min break reminder just paused the second I used it,
+            //    as if I left onto another tab. It should not pause.")
+            //
+            // Break sessions inherited three auto-pause hooks from the work
+            // timer: pause while the dashboard is the active tab, pause when
+            // Chrome loses focus, pause when the machine goes idle. Every one
+            // of those is right for a WORK timer and wrong for a break,
+            // because the entire point of a break is that you go and do
+            // something else. Glance at the dashboard, switch to another app,
+            // or get up and walk away, and the break clock stopped. A five
+            // minute break then never ends, which is exactly what was
+            // reported.
+            //
+            // Video-scoped breaks are the deliberate exception and are tagged
+            // below instead: those ARE meant to run only while you watch the
+            // specific video they were granted for.
+            if (!(message?.videoScoped === true && message?.videoId)) {
+              try {
+                const s = await loadTimerSession();
+                if (isSessionActive(s) && s.mode === TIMER_MODE.BREAK
+                    && s.windowName === windowName) {
+                  await saveTimerSession({ ...s, noAutoPause: true });
+                }
+              } catch (_) { /* best-effort; the hooks default to pausing */ }
+            }
             // Video-scoped tagging: a break started from the per-video
             // YouTube prompt belongs to that ONE video. syncVideoScopedPause
             // pauses it whenever the user isn't watching the video, and the
@@ -11723,9 +12550,16 @@ async function onWallClockStudyExpired(windowId, windowName) {
         ],
         priority: 2,
         requireInteraction: true
-      }).catch(() => {});
+      }).catch((e) => {
+        console.warn('[pf-study-complete] OS notification failed — check Chrome notification permissions at the OS level', e);
+      });
     }
-  } catch (_) {}
+  } catch (e) {
+    // Was a bare `catch (_) {}`: if anything above threw, the user saw NOTHING
+    // and nothing was logged, making "the timer ended and did nothing"
+    // undiagnosable. Never swallow silently here.
+    console.warn('[pf-study-complete] completion prompt/notification path failed', e);
+  }
 }
 
 /**
@@ -11791,7 +12625,39 @@ async function syncDashboardTimerPause(windowId) {
   // dashboard. No grace period — a visible 1-2s tick on start was confusing
   // ("why is my 5:00 timer now 4:58 before I even left the dashboard?").
   const activeTab = await getActiveTabForWindow(windowId);
-  const onDashboard = isPlayingFildDashboardTab(activeTab);
+  let onDashboard = isPlayingFildDashboardTab(activeTab);
+
+  // v84 FIX (user report: "I start the Work Timer from the quick menu, and
+  // after 3 seconds on Google Docs it pauses and won't tick down").
+  //
+  // The 3 seconds is JUST_STARTED_MS in timer_worker_integration.js: the tick
+  // loop skips every auto-pause hook for the first 3s of a session, then
+  // calls this function. So the pause was always going to land on the fourth
+  // second, whatever the user was doing.
+  //
+  // The cause is that "is the dashboard the active tab" was being asked of a
+  // window resolved from the timer's WINDOW NAME, not of the window the user
+  // is actually looking at. With the dashboard sitting open as the active tab
+  // of another window (which is how this gets used all day), the answer came
+  // back true while the user was typing in Docs somewhere else entirely.
+  //
+  // This pause exists so time is not burned while you sit STARING at the
+  // dashboard. That intent requires the user to actually be there. If Chrome
+  // is not focused on this window, they are not.
+  if (onDashboard) {
+    try {
+      const lastFocused = await chrome.windows.getLastFocused({ populate: false });
+      if (!lastFocused?.focused || lastFocused.id !== windowId) onDashboard = false;
+    } catch (_) {
+      // Focus unknowable: fall back to the old behaviour rather than letting
+      // a timer run unattended on the dashboard forever.
+    }
+  }
+
+  // v84: a plain break never dashboard-pauses. Sitting on the dashboard IS
+  // taking a break. Note this skips only the PAUSE branch; the resume below
+  // still runs, so a session paused by an older build recovers.
+  if (onDashboard && session.noAutoPause === true) onDashboard = false;
 
   if (onDashboard) {
     // Don't pause a BREAK timer while media is playing in the window — e.g. a
@@ -11865,7 +12731,9 @@ async function syncIdleTimerPause(windowId) {
   const idleState = await queryChromeIdleState(PF_IDLE_THRESHOLD_SEC);
   const isIdle = idleState === 'idle' || idleState === 'locked';
 
-  if (isIdle && session.status === TIMER_STATUS.RUNNING) {
+  // v84: walking away from the computer is the most complete form of taking
+  // a break there is. Pausing the clock for it was backwards.
+  if (isIdle && session.noAutoPause !== true && session.status === TIMER_STATUS.RUNNING) {
     let next = await pauseTimerSession(session);
     next = { ...next, idlePause: true };
     await saveTimerSession(next);
@@ -12793,9 +13661,46 @@ async function getCurrentCloserState(windowId, tabId = null) {
     // content-script surface (floating button, YouTube prompt, break
     // prompts, dwell banner) can hard-disable itself when the user
     // isn't signed in. Reading the session is cheap — one storage.local
-    // get — but only fires per broadcast tick.
-    signedIn: await isSignedIn()
+    // get — but only fires per broadcast tick. Trial (v56): report
+    // access (signed in OR live 30-min test) under the same key so all
+    // surfaces light up during the test without per-surface changes.
+    signedIn: await hasActiveAccess()
   };
+}
+
+/**
+ * v74: resolve a window's name, MINTING one if the window was never named.
+ * Fresh installs (trial users who skip the tutorial) reach the floating
+ * hold button and dashboard toggles before any naming flow has run — the
+ * closer paths used to bail silently on the missing name, so the hold
+ * completed but the dashboard's Unproductive Closer never turned on.
+ * Mirrors the naming logic in the windows.onCreated listener.
+ */
+async function ensureWindowNameForId(windowId) {
+  let windowName = await getWindowNameById(windowId);
+  if (windowName) return windowName;
+  try {
+    const stored = await chrome.storage.local.get('windowNameList');
+    const windowNameList = Array.isArray(stored.windowNameList) ? [...stored.windowNameList] : [];
+    const assignedNames = new Set(Array.from(windowRuntimeMap.values()).map((n) => normaliseKeyword(n)));
+    windowName = windowNameList.find((n) => !assignedNames.has(normaliseKeyword(n))) || null;
+    if (!windowName) {
+      let nextIndex = 1;
+      while (windowNameList.some((n) => normaliseKeyword(n) === normaliseKeyword(`Window ${nextIndex}`))) {
+        nextIndex++;
+      }
+      windowName = `Window ${nextIndex}`;
+      windowNameList.push(windowName);
+      await chrome.storage.local.set({ windowNameList });
+    }
+    await assignWindowNameMapping(windowId, windowName);
+    await buildRuntimeWindowConfigs();
+    console.info('[pf-window] minted name for unnamed window', windowId, '→', windowName);
+    return windowName;
+  } catch (e) {
+    console.warn('[pf-window] ensureWindowNameForId failed', e);
+    return null;
+  }
 }
 
 async function setCloserLimitsForWindow(windowId, enabled) {
@@ -12807,12 +13712,15 @@ async function setCloserLimitsForWindow(windowId, enabled) {
   }
   if (!windowId) return;
 
-  const windowName = await getWindowNameById(windowId);
+  const windowName = await ensureWindowNameForId(windowId);
   if (!windowName) return;
 
   const stored = await chrome.storage.local.get('windowConfigs');
   const configs = stored.windowConfigs || {};
-  if (!configs[windowName]) return;
+  // v74: CREATE a missing config instead of silently bailing — a fresh
+  // install has no windowConfigs entry until the tutorial's Confirm, and
+  // the bail meant the hold/dashboard toggle did nothing on trial installs.
+  if (!configs[windowName]) configs[windowName] = {};
 
   const wasEnabled = configs[windowName].limitsEnabled === true;
   const nextEnabled = enabled === true;
@@ -12850,14 +13758,15 @@ async function toggleCloserForWindow(windowId) {
   }
   if (!windowId) return;
 
-  const windowName = await getWindowNameById(windowId);
+  const windowName = await ensureWindowNameForId(windowId);
   if (!windowName) return;
 
   const stored = await chrome.storage.local.get('windowConfigs');
   const configs = stored.windowConfigs || {};
-  if (!configs[windowName]) return;
+  // v74: missing config = closer currently off — toggle turns it ON.
+  const cfg = configs[windowName] || {};
 
-  await setCloserLimitsForWindow(windowId, configs[windowName].limitsEnabled !== true);
+  await setCloserLimitsForWindow(windowId, cfg.limitsEnabled !== true);
 }
 
 async function pushCloserStateToTab(tabId) {
@@ -18857,13 +19766,45 @@ function buildHostnameTelemetryMap(tabs) {
   return map;
 }
 
+/**
+ * v81 (user report: "a tab ranks higher for a second, moves up, then back
+ * down, and only settles once you click away").
+ *
+ * Cause: time spent on the CURRENTLY ACTIVE tab is not written into
+ * totalTimeMs until you switch away — chrome.tabs.onActivated flushes
+ * `now - activatedAt` into the previous tab at that moment. So a reorder
+ * that runs mid-session scores the active tab off its pre-session total,
+ * ranks it lower, and drags it back down. Switching away flushes the time
+ * and the next pass finally puts it where it belongs.
+ *
+ * Fix: fold the in-flight active duration into the score on a COPY of the
+ * telemetry. The score stops moving backwards, so a tab that earns its way
+ * up stays up. The real telemetry object is untouched, so the flush on
+ * switch-away still credits exactly the same time once, never twice.
+ */
+function pfTelemetryWithPendingActiveTime(tel, tab) {
+  if (!tel) return tel;
+  const own = state.tabTelemetry?.[tab?.id];
+  const startedAt = Number(own?.activatedAt) || 0;
+  if (!startedAt) return tel;
+  const pending = Date.now() - startedAt;
+  // Ignore nonsense spans (clock changes, stale activatedAt from a
+  // previous browser session) using the same 24h sanity bound onActivated
+  // applies when it does the real flush.
+  if (!(pending > 0) || pending >= 24 * 60 * 60 * 1000) return tel;
+  return { ...tel, totalTimeMs: (Number(tel.totalTimeMs) || 0) + pending };
+}
+
 function getRankingTelemetryForTab(tab, rankingMode, hostMap) {
   if (rankingMode !== 'website') {
-    return state.tabTelemetry?.[tab.id] || null;
+    return pfTelemetryWithPendingActiveTime(state.tabTelemetry?.[tab.id] || null, tab);
   }
   const host = hostnameFromUrl(tab?.url || '');
-  if (!host) return state.tabTelemetry?.[tab.id] || null;
-  return hostMap?.get(host) || state.tabTelemetry?.[tab.id] || null;
+  if (!host) return pfTelemetryWithPendingActiveTime(state.tabTelemetry?.[tab.id] || null, tab);
+  return pfTelemetryWithPendingActiveTime(
+    hostMap?.get(host) || state.tabTelemetry?.[tab.id] || null,
+    tab
+  );
 }
 
 function getReorderClassificationWeight(tab) {
@@ -18879,9 +19820,98 @@ function getReorderClassificationWeight(tab) {
   return 0.7;
 }
 
+/**
+ * ── PER-WEBSITE REOPEN TRACKING (v84, user spec) ──────────────────────────
+ *
+ * state.hostOpens: { host: { n, last } }. `n` is how many separate times the
+ * user has arrived at that site; `last` throttles it. Persisted to
+ * chrome.storage.local so it survives service-worker eviction, which is the
+ * whole point: a site's importance is a long-running fact about the user, not
+ * something that should reset every time Chrome suspends the worker.
+ *
+ * Only used in WEBSITE ranking mode. In tab mode the user has asked to be
+ * ranked per tab, and folding a site-wide number in would contradict that.
+ */
+const PF_HOST_OPENS_KEY = 'pfHostOpenCounts';
+let pfHostOpensDirty = false;
+
+async function pfLoadHostOpens() {
+  if (state.hostOpens) return state.hostOpens;
+  try {
+    const stored = await chrome.storage.local.get(PF_HOST_OPENS_KEY);
+    state.hostOpens = stored[PF_HOST_OPENS_KEY] || {};
+  } catch (_) {
+    state.hostOpens = {};
+  }
+  return state.hostOpens;
+}
+
+async function pfPersistHostOpens() {
+  if (!pfHostOpensDirty || !state.hostOpens) return;
+  pfHostOpensDirty = false;
+  try {
+    await chrome.storage.local.set({ [PF_HOST_OPENS_KEY]: state.hostOpens });
+  } catch (_) { /* best-effort */ }
+}
+
+/**
+ * Record that the user arrived at `host`. Throttled: a redirect chain, a
+ * refresh, or an SPA bouncing between two of its own URLs must not read as
+ * several separate visits. Counting stops at PF_HOST_OPEN_MAX so no single
+ * site can accumulate without bound.
+ */
+async function pfRecordHostOpen(host) {
+  if (!host) return;
+  const map = await pfLoadHostOpens();
+  const now = Date.now();
+  const rec = map[host] || { n: 0, last: 0 };
+  if (now - (Number(rec.last) || 0) < PF_HOST_OPEN_MIN_GAP_MS) return;
+  if (rec.n >= PF_HOST_OPEN_MAX) {
+    // Still refresh the stamp so recency stays meaningful, but do not count.
+    rec.last = now;
+    map[host] = rec;
+    pfHostOpensDirty = true;
+    return;
+  }
+  rec.n = (Number(rec.n) || 0) + 1;
+  rec.last = now;
+  map[host] = rec;
+  pfHostOpensDirty = true;
+  void pfPersistHostOpens();
+}
+
+/** Bounded website-importance bonus for a tab. 0 outside website mode. */
+function pfHostImportanceBonus(tab, rankingMode) {
+  if (rankingMode !== 'website') return 0;
+  const host = hostnameFromUrl(tab?.url || '');
+  if (!host) return 0;
+  const n = state.hostOpens?.[host]?.n;
+  return hostImportanceComponent(n);
+}
+
+/**
+ * Fold the website bonus into a 0-1 base score, keeping the result 0-1 and
+ * strictly monotonic in the base. Two sites you open equally often still sort
+ * by engagement exactly as before.
+ */
+function pfApplyHostImportance(base, tab, rankingMode) {
+  if (rankingMode !== 'website') return base;
+  const bonus = pfHostImportanceBonus(tab, rankingMode);
+  if (bonus <= 0) return base / (1 + PF_HOST_IMPORTANCE_WEIGHT);
+  return (base + PF_HOST_IMPORTANCE_WEIGHT * bonus) / (1 + PF_HOST_IMPORTANCE_WEIGHT);
+}
+
+/**
+ * Tab-bar ranking score. v84 (user spec): no longer plain engagement —
+ * computeTabImportanceScore adds how often the tab gets reopened, so a
+ * reference tab you flick back to all day outranks a video left playing.
+ * The score PUSHED to the server (computeNormalizedEngagementScore) is
+ * deliberately untouched; this is an ordering-time adjustment only.
+ */
 function computeReorderScoreForTab(tab, rankingMode, hostMap) {
   const tel = getRankingTelemetryForTab(tab, rankingMode, hostMap);
-  return computeEngagementScore(tel, { includeNav: true, forRanking: true });
+  const base = computeTabImportanceScore(tel, { forRanking: true });
+  return pfApplyHostImportance(base, tab, rankingMode);
 }
 
 /**
@@ -18898,10 +19928,21 @@ function computeReorderScoreForTab(tab, rankingMode, hostMap) {
  * first, and was evicted. With forRanking:true the bot heuristics only
  * dampen (×0.5) instead of zeroing. Covered by
  * tests/tab_limit_eviction.test.mjs — do not remove forRanking again.
+ *
+ * v84: follows computeReorderScoreForTab onto computeTabImportanceScore for
+ * the same reason the invariant exists. If ranking counted revisits and
+ * eviction did not, the tab bar would show your most-reopened tab on the
+ * left while the limit quietly closed it — the exact failure the guard
+ * above was written for, reintroduced through the back door.
  */
 function computeTabLimitEvictionScore(tab, rankingMode, hostMap) {
   const tel = getRankingTelemetryForTab(tab, rankingMode, hostMap);
-  return computeEngagementScore(tel, { includeNav: true, forRanking: true });
+  const base = computeTabImportanceScore(tel, { forRanking: true });
+  // v84: "so the important tabs don't get closed" — the website bonus has to
+  // apply HERE too, not just to the visible order. If ranking counted reopens
+  // and eviction did not, the tab bar would show your most-reopened site on
+  // the left while the limit quietly closed it.
+  return pfApplyHostImportance(base, tab, rankingMode);
 }
 
 function computeReorderScore(tab, rankingMode, hostMap) {
@@ -19373,9 +20414,33 @@ function pinDashboardTabsToEnd(tabs) {
   return [...rest, ...dashboardTabs];
 }
 
-function sortTabsByEngagement(tabs, windowId) {
+function sortTabsByEngagement(tabs, windowId, orderOpts = {}) {
   const rankingMode = getRankingModeForWindow(windowId);
   const hostMap = rankingMode === 'website' ? buildHostnameTelemetryMap(tabs) : null;
+  const engagementEnabled = orderOpts.engagementEnabled !== false;
+  const groupingEnabled = orderOpts.groupingEnabled === true;
+
+  // v83: Group Similar Tabs. Clustering owns the whole ordering when it is
+  // on — running it after an engagement sort would just scatter the clusters
+  // again. groupAndOrderTabs handles both cases internally: with engagement
+  // on it ranks clusters and members by score, with it off it preserves the
+  // user's existing left-to-right order and only pulls related tabs together.
+  if (groupingEnabled) {
+    const grouped = groupAndOrderTabs(
+      tabs.map((t) => ({
+        tab: t,
+        id: t.id,
+        index: Number(t.index) || 0,
+        title: t.title || '',
+        url: t.url || '',
+        score: engagementEnabled ? computeReorderScoreForTab(t, rankingMode, hostMap) : 0
+      })),
+      { engagementEnabled }
+    ).map((entry) => entry.tab);
+    return pinDashboardTabsToEnd(grouped);
+  }
+
+  // Engagement-only path (unchanged).
   const sorted = [...tabs].sort((a, b) => {
     const scoreA = computeReorderScoreForTab(a, rankingMode, hostMap);
     const scoreB = computeReorderScoreForTab(b, rankingMode, hostMap);
@@ -19395,13 +20460,14 @@ function sortTabsByEngagement(tabs, windowId) {
 }
 
 /** Pinned (shielded) tabs keep their slot; all other normal tabs sort by engagement. Dashboard trails. */
-function mergeSortedTabsWithPinned(normalTabs, windowId) {
+function mergeSortedTabsWithPinned(normalTabs, windowId, orderOpts = {}) {
   const slotFixed = normalTabs.filter((t) =>
     !isPlayingFildDashboardTab(t) && isTabProtected(t)
   );
   const sortedMovable = sortTabsByEngagement(
     normalTabs.filter((t) => !isTabProtected(t) && !isPlayingFildDashboardTab(t)),
-    windowId
+    windowId,
+    orderOpts
   );
   if (slotFixed.length === 0) return sortedMovable;
 
@@ -19499,19 +20565,37 @@ function queueTabTitleShortcutRefresh(windowId, delayMs = 500) {
 }
 
 async function reorderTabsByEngagement(windowId, options = {}) {
+  // Website importance lives in chrome.storage, so it has to be in memory
+  // before any scoring runs. Without this a reorder immediately after a
+  // service-worker wake would silently score every site's bonus as 0.
+  await pfLoadHostOpens();
   // User spec 2026-07 v40: Reorder Tabs toggle sits next to Unproductive
   // Tab Closer on the dashboard. When OFF, skip all automatic
   // reordering — the user's manually-arranged tab order is preserved.
   // Explicit dashboard-triggered reorders (fromInteraction: true) still
   // respect the toggle. Defaults ON if the key was never set (matches
   // the pre-toggle behavior).
+  //
+  // v83: Group Similar Tabs is a SECOND, independent reason to touch the
+  // order. The old early-return bailed whenever engagement reordering was
+  // off, which would have made grouping unreachable in exactly the
+  // configuration the user asked for ("if the reorder toggle is not on then
+  // just make similar tabs stick with similar ones"). Bail only when BOTH
+  // are off.
+  let engagementEnabled = true;
+  let groupingEnabled = false;
   try {
-    const stored = await chrome.storage.local.get('pfReorderTabsEnabled');
-    if (stored.pfReorderTabsEnabled === false) {
-      console.info('[pf-reorder] skipped — pfReorderTabsEnabled is false');
-      return;
-    }
-  } catch (_) { /* storage unavailable — default to reordering */ }
+    const stored = await chrome.storage.local.get([
+      'pfReorderTabsEnabled', 'pfGroupSimilarTabsEnabled'
+    ]);
+    engagementEnabled = stored.pfReorderTabsEnabled !== false;
+    groupingEnabled = stored.pfGroupSimilarTabsEnabled === true;
+  } catch (_) { /* storage unavailable — default to engagement reordering */ }
+  if (!engagementEnabled && !groupingEnabled) {
+    console.info('[pf-reorder] skipped — engagement and grouping both off');
+    return;
+  }
+  const orderOpts = { engagementEnabled, groupingEnabled };
   const REORDER_THROTTLE_MS = 5000;
   const last = state.lastReorderAt?.[windowId] || 0;
   const elapsed = Date.now() - last;
@@ -19548,7 +20632,7 @@ async function reorderTabsByEngagement(windowId, options = {}) {
       if (url.startsWith('chrome://')) return false;
       return true;
     });
-    const sortedNormal = mergeSortedTabsWithPinned(normalTabs, windowId);
+    const sortedNormal = mergeSortedTabsWithPinned(normalTabs, windowId, orderOpts);
     const movableSorted = pinDashboardTabsToEnd([
       ...sortedNormal,
       ...extensionTabs,
@@ -19697,7 +20781,9 @@ async function getWindowNameById(windowId) {
 }
 
 async function saveWindowConfigById(windowId, updates) {
-  const windowName = await getWindowNameById(windowId);
+  // v74: mint a name for never-named windows (fresh trial installs) so
+  // dashboard toggle writes land instead of silently failing.
+  const windowName = await ensureWindowNameForId(windowId);
   if (!windowName) {
     console.warn('>=PlayingFild: saveWindowConfigById — window name unavailable', windowId);
     return false;
@@ -20658,7 +21744,9 @@ async function enforceTabLimitInner(windowId, options = {}) {
     // happens BEFORE sign-in (sign-in is the last step), so an explicit
     // user-clicked sweep passes explicitUserSweep and is allowed through —
     // the user literally just consented to closing their overflow tabs.
-    if (!options.explicitUserSweep && !(await isSignedIn())) {
+    // Trial-aware (kept from the 30-minute test work): a live trial counts
+    // as access, so the tab limit works during the signed-out test.
+    if (!options.explicitUserSweep && !(await hasActiveAccess())) {
       return { success: false, reason: 'Signed out' };
     }
     if (!options.allowDuringTutorial) {
@@ -20797,6 +21885,10 @@ async function enforceTabLimitInner(windowId, options = {}) {
 
     const rankingMode = getRankingModeForWindow(windowId);
     const hostMap = rankingMode === 'website' ? buildHostnameTelemetryMap(evictableTabs) : null;
+    // Website importance must be loaded before scoring, or a cold worker
+    // would evict a site the user reopens constantly. See
+    // pfApplyHostImportance in computeTabLimitEvictionScore.
+    await pfLoadHostOpens();
 
     // Sort: lowest plain engagement first (no classification weight).
     const sortedTabs = [...evictableTabs].sort((a, b) => {
@@ -22841,6 +23933,13 @@ async function updateProductiveTopicTracker(windowId, analysis, url = "") {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === PF_BANK_ALARM) {
+    // 24h TTL backstop. purgeBankIfExpired re-checks the timestamp, so a
+    // late-firing alarm (MV3 workers sleep) can never purge early.
+    const purged = await purgeBankIfExpired();
+    console.info('[pf-bank] expiry alarm fired; purged:', purged);
+    return;
+  }
   if (alarm.name === 'tutorialTimeout') {
     await chrome.storage.session.set({ tutorialActive: false });
     await chrome.alarms.clear('tutorialTimeout');
@@ -22998,6 +24097,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
               tel.activatedAt = now;
               updated++;
               await creditWallClockSiteLogForTab(activeTab, elapsed);
+            } else {
+              // v82 (user report: "the tab I'm on moves up the queue then
+              // moves back down on its own, without anything else changing").
+              //
+              // Out-of-range spans (SW slept, laptop closed, clock jumped) are
+              // correctly NOT credited — but the mark was also left untouched,
+              // so activatedAt kept ageing. The v81 ranking fix folds
+              // `now - activatedAt` into the score as pending active time, so a
+              // stale mark inflated the ACTIVE tab's score by however long the
+              // gap was. That floated it up the tab bar, and the moment
+              // onActivated re-set activatedAt the phantom time vanished and it
+              // dropped straight back down.
+              //
+              // Re-base the mark here so pending can never exceed one tick.
+              // Crediting is unchanged: the rejected span is still discarded.
+              tel.activatedAt = now;
+              updated++;
             }
           }
         }
@@ -23305,8 +24421,53 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   scheduleLastSessionTabSync(tab.windowId);
 });
 
+/**
+ * Deferred hand-off after the 30-minute trial runs out (user spec 2026-07).
+ *
+ * pfTickTrial sets pfTrialExpiredPending the second the clock hits zero, but
+ * does NOT navigate. Opening the dashboard at that moment would pull the user
+ * off whatever page they were reading, mid-sentence, for a message they did
+ * not ask for. Waiting for a tab switch means the interruption lands at a
+ * point they had already chosen to move.
+ *
+ * The flag is cleared BEFORE the dashboard is opened, not after, so a slow
+ * tab create cannot let a second activation fire this twice.
+ */
+async function pfMaybeHandOffExpiredTrial() {
+  let pending = false;
+  try {
+    pending = (await chrome.storage.local.get('pfTrialExpiredPending'))
+      .pfTrialExpiredPending === true;
+  } catch (_) { return; }
+  if (!pending) return;
+  // They may have signed in between expiry and this tab switch, in which case
+  // the whole message is wrong.
+  if (await isSignedIn().catch(() => false)) {
+    await chrome.storage.local.remove('pfTrialExpiredPending').catch(() => {});
+    return;
+  }
+  await chrome.storage.local.remove('pfTrialExpiredPending').catch(() => {});
+  try {
+    const url = `${getPlayingFildDashboardUrlPrefix()}?trialExpired=1`;
+    const all = await chrome.tabs.query({}).catch(() => []);
+    const existing = all.find(isPlayingFildDashboardTab);
+    if (existing?.id != null) {
+      await chrome.tabs.update(existing.id, { active: true, url });
+      await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {});
+    } else {
+      const created = await chrome.tabs.create({ url, active: true });
+      if (created?.id != null) markDashboardTabId(created.id);
+    }
+  } catch (e) {
+    console.warn('[pf-trial] expiry hand-off failed', e);
+  }
+}
+
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await ensureReady();
+  // Fire-and-forget: this must never delay or throw into the telemetry
+  // bookkeeping below, which is the listener's real job.
+  void pfMaybeHandOffExpiredTrial();
   const now = Date.now();
   const previousTabId = state.currentActiveTabId;
   if (previousTabId && previousTabId !== activeInfo.tabId) {
@@ -23513,6 +24674,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     // state on their very next read.
     state.chromeForeground = (windowId !== chrome.windows.WINDOW_ID_NONE);
 
+
     // chrome.windows.WINDOW_ID_NONE means user clicked outside Chrome
     if (windowId === chrome.windows.WINDOW_ID_NONE) {
       const r = await chrome.storage.local.get('unprodWallClock');
@@ -23532,7 +24694,9 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
           const mediaPlaying = session.mode === TIMER_MODE.BREAK
             ? await windowHasAudibleTab(await resolveWindowIdFromName(session.windowName))
             : false;
-          if (!mediaPlaying) {
+          // v84: switching to another application during a break is not a
+          // reason to stop the break clock, it is the break.
+          if (!mediaPlaying && session.noAutoPause !== true) {
             let next = await pauseTimerSession(session);
             next = { ...next, focusPause: true };
             await saveTimerSession(next);
@@ -23747,6 +24911,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       if (tel && oldUrl) {
         await pushTabEngagementEvent({ id: tabId, url: oldUrl }, tel, 'url_change');
       }
+    }
+    // v84: count this as an "open" of the site whenever the tab lands on a
+    // host it was not already on. That covers a fresh tab (no prevHostname)
+    // and navigating away and back, which is exactly the "constantly reopen"
+    // behaviour the website ranking is meant to reward. Same-host navigation
+    // is already covered by pathTransitions and must not count again here.
+    if (newHostname && newHostname !== prevHostname) {
+      void pfRecordHostOpen(newHostname);
     }
     if (!state.lastHostnamePerTab) state.lastHostnamePerTab = {};
     state.lastHostnamePerTab[tabId] = newHostname;

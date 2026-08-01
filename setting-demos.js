@@ -219,7 +219,7 @@ const DEMO_CONTENT = {
     title: 'Advanced Earn / Spend preview',
     label: 'Advanced Earn / Spend preview',
     build() {
-      const focusSec = readDemoTimerSeconds('bankFocusTimeModeB', 15 * 60);
+      const focusSec = readDemoTimerSeconds('bankFocusTimeModeB', 30 * 60);
       const earnedSec = readDemoTimerSeconds('bankEarnedTimeModeB', 5 * 60);
       const midFocus = Math.max(1, Math.floor(focusSec / 2));
       const spendMidRemaining = Math.max(1, Math.ceil(earnedSec / 2));

@@ -121,17 +121,83 @@ export async function loadTimerSession() {
   // state closes unproductive tabs forever while the UI shows NO timer
   // (buildTimerSnapshot reports timerActive:false for limitSec 0). Repair
   // to idle instead of letting enforcement act on it.
-  const limitSec = Number(session.limitSec) || 0;
-  if (limitSec <= 0) {
+  const corruption = describeSessionCorruption(session);
+  if (corruption) {
     try {
-      console.warn('[pf-timer] repaired corrupt active timer session (limitSec <= 0)', {
-        mode: session.mode, windowName: session.windowName, startedAt: session.startedAt
+      console.warn(`[pf-timer] repaired corrupt active timer session (${corruption})`, {
+        mode: session.mode,
+        windowName: session.windowName,
+        startedAt: session.startedAt,
+        limitSec: session.limitSec,
+        status: session.status
       });
       await setTimerIdle();
     } catch (_) { /* repair is best-effort; still return idle below */ }
     return createIdleSession();
   }
   return { ...createIdleSession(), ...session };
+}
+
+/**
+ * Hard upper bound on how long an active session may sit in storage before we
+ * treat it as orphaned. Nothing legitimately runs a wall-clock Work/Break
+ * session for a full day; a session older than this is left over from a
+ * previous browser life (crash, forced update, SW never woke to expire it).
+ */
+const MAX_SESSION_AGE_MS = 24 * 60 * 60 * 1000;
+/** Tolerance for small clock skew / NTP corrections on startedAt. */
+const FUTURE_START_TOLERANCE_MS = 60 * 1000;
+
+/**
+ * Integrity check for a persisted ACTIVE session. Returns a short reason string
+ * when the session is unusable, or null when it is sound.
+ *
+ * Persisted timer state is the one thing that survives reloads, updates and
+ * crashes, so a single bad write can wedge the extension indefinitely: ghost
+ * sessions that can never expire keep enforcement running while the UI shows no
+ * timer, and orphaned sessions block new timers from starting. Uninstalling
+ * clears storage and "fixes" it, which is exactly the symptom users report and
+ * cannot act on. Repairing to idle on read is always safe — the worst case is
+ * one lost timer, versus an extension that misbehaves until reinstall.
+ */
+function describeSessionCorruption(session, now = Date.now()) {
+  // startTimerSession always writes limitSec >= 1. An "active" session with no
+  // positive limit can NEVER expire (isSessionExpired short-circuits on
+  // limitSec <= 0) yet still counts as active for enforcement.
+  const limitSec = Number(session.limitSec) || 0;
+  if (!Number.isFinite(limitSec) || limitSec <= 0) return 'limitSec <= 0';
+
+  // Enforcement, expiry and every broadcast key off mode + windowName. Either
+  // one missing or unrecognised means the session can never be matched to a
+  // window, so it can never be expired or stopped through the normal paths.
+  if (session.mode !== TIMER_MODE.STUDY && session.mode !== TIMER_MODE.BREAK) {
+    return `unknown mode: ${String(session.mode)}`;
+  }
+  if (!session.windowName) return 'missing windowName';
+
+  // Elapsed time is derived entirely from startedAt; a missing, non-numeric or
+  // future timestamp makes every downstream computation meaningless.
+  const startedAt = Number(session.startedAt) || 0;
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return 'missing startedAt';
+  if (startedAt > now + FUTURE_START_TOLERANCE_MS) return 'startedAt in the future';
+  if (now - startedAt > MAX_SESSION_AGE_MS) return 'session older than 24h';
+
+  // A PAUSED session without pausedAt under-counts paused time forever, so the
+  // countdown drains in real time while the UI insists it is paused.
+  if (session.status === TIMER_STATUS.PAUSED) {
+    const pausedAt = Number(session.pausedAt) || 0;
+    if (!Number.isFinite(pausedAt) || pausedAt <= 0) return 'paused without pausedAt';
+    if (pausedAt > now + FUTURE_START_TOLERANCE_MS) return 'pausedAt in the future';
+  }
+
+  // Accumulated pause time can never exceed the wall-clock age of the session.
+  const totalPausedMs = Number(session.totalPausedMs) || 0;
+  if (!Number.isFinite(totalPausedMs) || totalPausedMs < 0) return 'negative totalPausedMs';
+  if (totalPausedMs > (now - startedAt) + FUTURE_START_TOLERANCE_MS) {
+    return 'totalPausedMs exceeds session age';
+  }
+
+  return null;
 }
 
 export async function saveTimerSession(session) {

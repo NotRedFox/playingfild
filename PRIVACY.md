@@ -1,6 +1,6 @@
 # PLAYINGFILD PRIVACY POLICY
 
-**Version 1.8.2.6** | **Last Updated:** June 19, 2026  
+**Version 1.10.0.0** | **Last Updated:** July 30, 2026  
 **Contact:** AOEPlayingFild@protonmail.com
 
 **Public URL:** https://gist.github.com/NotRedFox/e400c02894f215b20b805e16eda7aa88
@@ -86,6 +86,7 @@ The following is computed and stored on your device. Some of it stays on your de
 - Daily WPM / typing-speed charts
 - Raw click coordinates used for the local click-activity UI
 - Sensitive-page detector evaluation metadata (category/reason/score) used only to gate scraping locally
+- Banked tabs: when you go over your tab limit, the addresses of the tabs that were parked are stored on your device so you can reopen them. They are deleted after 24 hours, or when you clear them yourself, and are never uploaded
 
 **Stored on your device and synced in Standard mode (Layer 3):**
 
@@ -202,11 +203,29 @@ PlayingFild has two data modes, chosen in Profile → Settings (or during onboar
 
 There is no per-field telemetry toggle in the dashboard today — only Standard vs Local. A paid enterprise tier is not available yet.
 
+### SESSION REPLAY (DASHBOARD ONLY, MASKED)
+
+To find bugs we cannot reproduce, we record masked session replays of the extension dashboard only. We do not record any website you visit.
+
+Every text node and every input is masked before it leaves your device, so we see layout and clicks, not words. Some panels are blocked from recording entirely rather than masked: the productive vs unproductive chart, the per-site time list, your most-used sites, the settings drawer (which shows your display name and email), your saved startup URLs, Wrapped cards, and the earn/spend site fields. Network request headers and bodies are not recorded, and content inside cross-origin frames is not recorded.
+
+Replays are keyed to a random per-install identifier, never your account ID, email or display name. They are processed by PostHog on EU infrastructure.
+
+The "Send anonymous product analytics" switch in Profile -> Settings turns replay off as well, and takes effect immediately rather than at the next restart. Replay also does not run where that switch cannot be read, or where the install has been flagged as automated.
+
+### ANONYMOUS EVENTS BEFORE SIGN-IN
+
+A fixed set of events is recorded before you have an account, so we can see where setup goes wrong: installation, each onboarding step reached, reaching the sign-in screen, submitting a sign-up or sign-in, requesting a password reset, and choosing a theme.
+
+These carry a random per-install identifier and no personal information, and are not linked to an account afterwards. Every other analytics event requires you to be signed in. Each event also carries a build channel label so we can separate our own development builds from real usage.
+
 ### ON THE TERM "PSEUDO-ANONYMOUS"
 
 Layer 2 telemetry does not include your email or display name, but it does include your Supabase `user_id` and a device `telemetry_id` so we can honor deletion requests and prevent abuse. Because it includes behavioral patterns (engagement scores, time on site, feedback keywords), it is pseudo-anonymous rather than fully anonymous. With enough behavioral signal, an individual could in theory be re-identified. We design our systems to minimize this risk and apply small-cell suppression in aggregated reporting.
 
 We do not collect your birthdate or an age bracket. At signup you confirm you are 13 or older; we store `agreed_to_age_at` (timestamp only).
+
+Session replay and pre-sign-in events are separate from Layer 2 and are keyed to a random per-install identifier rather than your account. They are not joined to your Layer 2 or Layer 3 data.
 
 ### WHY WE COLLECT A PURE ENGAGEMENT SCORE AND NOT RAW SIGNALS
 
@@ -221,6 +240,7 @@ The pure engagement score is a single number we use to detect automated traffic 
 - Raw mouse click coordinates
 - Keystroke content (typing-speed metadata stays local only)
 - URLs or engagement from excluded hosts, sensitive URL paths, or DOM-detected sensitive pages (banking, healthcare, webmail, AI/chat tools, login/checkout surfaces, etc.), except Mode B earn time counting on your device as described above
+- Anything from session replay or pre-sign-in analytics, which are described separately above and are not part of Layer 2
 
 **May be sent in Layer 2 (Standard mode only):**
 
@@ -314,6 +334,8 @@ If we change this policy, we will:
 - Show a notice inside the extension on next dashboard open.
 
 Material changes (new data uses, new selling categories) require fresh explicit opt-in.
+The in-extension notice is shown to existing installations only. A new installation is not shown it, because the current policy is the one in force when they installed.
+
 
 ---
 

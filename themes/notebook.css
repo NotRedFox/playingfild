@@ -837,19 +837,6 @@ body.theme-notebook .dot-on {
 body.theme-notebook .dot-off {
   background: var(--nb-danger) !important;
 }
-body.theme-notebook #tabLimitLockBtn {
-  font-family: var(--nb-font) !important;
-  border: 2px solid var(--nb-border) !important;
-  border-radius: 8px !important;
-}
-body.theme-notebook #tabLimitLockBtn.is-unlocked {
-  background: rgba(180, 86, 106, 0.14) !important;
-  color: #8f3340 !important;
-}
-body.theme-notebook #tabLimitLockBtn.is-locked {
-  background: rgba(78, 154, 106, 0.16) !important;
-  color: #2d6a3e !important;
-}
 
 /* ════════════════ STATS TAB ════════════════ */
 body.theme-notebook .sub-tabs {
@@ -1299,12 +1286,6 @@ body.theme-notebook #headerSignOutBtn .nb-sketch-icon[data-icon="person"] {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B4566A' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.5'/%3E%3Cpath d='M5 20c0-3.5 3-6 7-6s7 2.5 7 6'/%3E%3C/svg%3E");
 }
 
-body.theme-notebook #editNameBtn .pf-control-icon[data-icon="pencil"],
-body.theme-notebook #pfProfileEditNameBtn .pf-control-icon[data-icon="pencil"],
-body.theme-notebook #tabLimitLockBtn .pf-control-icon[data-icon="lock-open"],
-body.theme-notebook #tabLimitLockBtn .pf-control-icon[data-icon="lock-closed"] {
-  display: inline-block !important;
-}
 body.theme-notebook .pf-control-icon[data-icon="pencil"] {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236256A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4l10-10-4-4L4 16v4z'/%3E%3Cpath d='M13.5 6.5l4 4'/%3E%3C/svg%3E");
 }
@@ -1315,16 +1296,6 @@ body.theme-notebook .pf-control-icon[data-icon="lock-closed"] {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a9a6a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='10.5' width='12' height='9' rx='1.5'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0'/%3E%3C/svg%3E");
 }
 
-body.theme-notebook #editNameBtn,
-body.theme-notebook #pfProfileEditNameBtn,
-body.theme-notebook #tabLimitLockBtn {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  min-height: 30px;
-  padding: 4px 8px !important;
-}
 /* Naked pencil buttons on notebook (user spec 2026-07 v16 "remove the
    border around the pencil on the notebook skin"). The generic
    `body.theme-notebook .content-box button` rule adds a 2px lavender
